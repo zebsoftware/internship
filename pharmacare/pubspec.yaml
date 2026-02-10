@@ -1,4 +1,4 @@
-name: PharmaCare
+name: pharmacare
 description: A pharmacy management system built with Flutter
 publish_to: 'none'
 version: 1.0.0+1
@@ -10,11 +10,22 @@ dependencies:
   flutter:
     sdk: flutter
   cupertino_icons: ^1.0.2
+  firebase_core: ^4.4.0
+  firebase_auth: ^6.1.4
+  cloud_firestore: ^6.1.2
+  firebase_storage: ^13.0.6
+  firebase_messaging: ^16.1.1
+  firebase_analytics: ^12.1.1
+  firebase_crashlytics: ^5.0.7
+  firebase_ui_auth: ^3.0.1
+  firebase_ui_firestore: ^2.0.1
+  intl: 0.20.2  
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^2.0.0
+  
+  
 
 flutter:
   uses-material-design: true

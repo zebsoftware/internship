@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'medicine_model.dart';
+import 'AddMedicineDialog.dart';
 
 class InventoryScreen extends StatefulWidget {
   const InventoryScreen({Key? key}) : super(key: key);
@@ -9,51 +12,101 @@ class InventoryScreen extends StatefulWidget {
 
 class _InventoryScreenState extends State<InventoryScreen> {
   String _selectedCategory = 'All Items';
+  String _searchQuery = '';
+  final TextEditingController _searchController = TextEditingController();
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  final List<Map<String, dynamic>> _inventory = [
-    {
-      'name': 'Aspirin 500mg',
-      'type': 'Tablet',
-      'price': '\$12.99',
-      'units': 450,
-      'isLowStock': false,
-    },
-    {
-      'name': 'Amoxicillin 250mg',
-      'type': 'Capsule',
-      'price': '\$18.50',
-      'units': 23,
-      'isLowStock': true,
-    },
-    {
-      'name': 'Ibuprofen 400mg',
-      'type': 'Tablet',
-      'price': '\$9.99',
-      'units': 0,
-      'isLowStock': true,
-    },
-    {
-      'name': 'Paracetamol Syrup',
-      'type': 'Syrup',
-      'price': '\$7.50',
-      'units': 180,
-      'isLowStock': false,
-    },
-    {
-      'name': 'Vitamin D3',
-      'type': 'Capsule',
-      'price': '\$15.99',
-      'units': 320,
-      'isLowStock': false,
-    },
+  final List<String> _medicineTypes = [
+    'Tablet',
+    'Capsule',
+    'Syrup',
+    'Injection',
   ];
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  Stream<QuerySnapshot> _getMedicinesStream() {
+    Query query = _firestore.collection('medicines');
+
+    // Apply search filter
+    if (_searchQuery.isNotEmpty) {
+      query = query.where('name', isGreaterThanOrEqualTo: _searchQuery);
+    }
+
+    // Apply type filter
+    if (_selectedCategory != 'All Items') {
+      query = query.where('type', isEqualTo: _selectedCategory);
+    }
+
+    return query.orderBy('createdAt', descending: true).snapshots();
+  }
+
+  void _showAddMedicineDialog({Medicine? medicine}) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AddMedicineDialog(
+        medicine: medicine,
+        onSaved: () => setState(() {}),
+      ),
+    );
+  }
+
+  Future<void> _deleteMedicine(String medicineId) async {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        backgroundColor: const Color(0xFF1E293B),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
+        title: const Text(
+          'Delete Medicine',
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        content: const Text(
+          'Are you sure you want to delete this medicine?',
+          style: TextStyle(
+            color: Color(0xFF94A3B8),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text(
+              'Cancel',
+              style: TextStyle(color: Color(0xFF64748B)),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(context);
+              await _firestore.collection('medicines').doc(medicineId).delete();
+              setState(() {});
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFEF4444),
+            ),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     return SafeArea(
       child: Column(
         children: [
-          // Header
+          // Header - EXACTLY SAME AS BEFORE
           Padding(
             padding: const EdgeInsets.all(20),
             child: Row(
@@ -68,13 +121,16 @@ class _InventoryScreenState extends State<InventoryScreen> {
                   ),
                 ),
                 ElevatedButton.icon(
-                  onPressed: () {},
+                  onPressed: () => _showAddMedicineDialog(),
                   icon: const Icon(Icons.add, size: 20),
                   label: const Text('Add'),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF2B7AFE),
                     foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 12,
+                    ),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),
@@ -85,27 +141,44 @@ class _InventoryScreenState extends State<InventoryScreen> {
             ),
           ),
 
-          // Search and Filter
+          // Search and Filter - EXACTLY SAME AS BEFORE
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20),
             child: Row(
               children: [
                 Expanded(
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
                     decoration: BoxDecoration(
                       color: const Color(0xFF1E293B),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Row(
-                      children: const [
-                        Icon(Icons.search, color: Color(0xFF64748B)),
-                        SizedBox(width: 12),
-                        Text(
-                          'Search inventory...',
-                          style: TextStyle(
-                            color: Color(0xFF64748B),
-                            fontSize: 14,
+                      children: [
+                        const Icon(Icons.search, color: Color(0xFF64748B)),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: TextField(
+                            controller: _searchController,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 14,
+                            ),
+                            decoration: const InputDecoration(
+                              hintText: 'Search inventory...',
+                              hintStyle: TextStyle(
+                                color: Color(0xFF64748B),
+                              ),
+                              border: InputBorder.none,
+                            ),
+                            onChanged: (value) {
+                              setState(() {
+                                _searchQuery = value.trim();
+                              });
+                            },
                           ),
                         ),
                       ],
@@ -129,7 +202,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
           ),
           const SizedBox(height: 20),
 
-          // Category Filters
+          // Category Filters - EXACTLY SAME AS BEFORE
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -163,22 +236,86 @@ class _InventoryScreenState extends State<InventoryScreen> {
           ),
           const SizedBox(height: 24),
 
-          // Inventory List
+          // Inventory List with StreamBuilder
           Expanded(
-            child: ListView.builder(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              itemCount: _inventory.length,
-              itemBuilder: (context, index) {
-                final item = _inventory[index];
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: _InventoryCard(
-                    name: item['name'],
-                    type: item['type'],
-                    price: item['price'],
-                    units: item['units'],
-                    isLowStock: item['isLowStock'],
-                  ),
+            child: StreamBuilder<QuerySnapshot>(
+              stream: _getMedicinesStream(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(
+                    child: CircularProgressIndicator(
+                      color: Color(0xFF2B7AFE),
+                    ),
+                  );
+                }
+
+                if (snapshot.hasError) {
+                  return const Center(
+                    child: Text(
+                      'Error loading inventory',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                  );
+                }
+
+                if (snapshot.data!.docs.isEmpty) {
+                  return Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Container(
+                          width: 100,
+                          height: 100,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF1E293B),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.inventory_2_outlined,
+                            color: Color(0xFF64748B),
+                            size: 48,
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                        const Text(
+                          'No medicines found',
+                          style: TextStyle(
+                            color: Color(0xFF94A3B8),
+                            fontSize: 16,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        const Text(
+                          'Add your first medicine to get started',
+                          style: TextStyle(
+                            color: Color(0xFF64748B),
+                            fontSize: 14,
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }
+
+                final medicines = snapshot.data!.docs
+                    .map((doc) => Medicine.fromFirestore(doc))
+                    .toList();
+
+                return ListView.builder(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  itemCount: medicines.length,
+                  itemBuilder: (context, index) {
+                    final medicine = medicines[index];
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: _InventoryCard(
+                        medicine: medicine,
+                        onEdit: () =>
+                            _showAddMedicineDialog(medicine: medicine),
+                        onDelete: () => _deleteMedicine(medicine.id!),
+                      ),
+                    );
+                  },
                 );
               },
             ),
@@ -208,7 +345,9 @@ class _CategoryButton extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
         decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF2B7AFE) : const Color(0xFF1E293B),
+          color: isSelected
+              ? const Color(0xFF2B7AFE)
+              : const Color(0xFF1E293B),
           borderRadius: BorderRadius.circular(24),
         ),
         child: Text(
@@ -225,31 +364,20 @@ class _CategoryButton extends StatelessWidget {
 }
 
 class _InventoryCard extends StatelessWidget {
-  final String name;
-  final String type;
-  final String price;
-  final int units;
-  final bool isLowStock;
+  final Medicine medicine;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
 
   const _InventoryCard({
     Key? key,
-    required this.name,
-    required this.type,
-    required this.price,
-    required this.units,
-    required this.isLowStock,
+    required this.medicine,
+    required this.onEdit,
+    required this.onDelete,
   }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
-    Color unitColor;
-    if (units == 0) {
-      unitColor = const Color(0xFFEF4444);
-    } else if (isLowStock) {
-      unitColor = const Color(0xFFF59E0B);
-    } else {
-      unitColor = const Color(0xFF10B981);
-    }
+    final unitColor = medicine.statusColor;
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -259,7 +387,7 @@ class _InventoryCard extends StatelessWidget {
       ),
       child: Row(
         children: [
-          // Medicine Icon
+          // Medicine Icon - EXACTLY SAME AS BEFORE
           Container(
             width: 48,
             height: 48,
@@ -275,13 +403,13 @@ class _InventoryCard extends StatelessWidget {
           ),
           const SizedBox(width: 16),
 
-          // Medicine Info
+          // Medicine Info - EXACTLY SAME AS BEFORE
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  name,
+                  medicine.name,
                   style: const TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w600,
@@ -290,7 +418,7 @@ class _InventoryCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  type,
+                  medicine.type,
                   style: const TextStyle(
                     fontSize: 12,
                     color: Color(0xFF64748B),
@@ -300,12 +428,12 @@ class _InventoryCard extends StatelessWidget {
             ),
           ),
 
-          // Price and Units
+          // Price and Units - EXACTLY SAME AS BEFORE
           Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Text(
-                price,
+                '\$${medicine.sellingPrice.toStringAsFixed(2)}',
                 style: const TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
@@ -314,7 +442,7 @@ class _InventoryCard extends StatelessWidget {
               ),
               const SizedBox(height: 4),
               Text(
-                '$units units',
+                '${medicine.quantity} units',
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
@@ -326,15 +454,48 @@ class _InventoryCard extends StatelessWidget {
 
           const SizedBox(width: 12),
 
-          // Menu Button
-          IconButton(
-            onPressed: () {},
+          // Menu Button with Edit/Delete options
+          PopupMenuButton<String>(
             icon: const Icon(
               Icons.more_vert,
               color: Color(0xFF64748B),
             ),
             padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+            ),
+            itemBuilder: (context) => [
+              PopupMenuItem(
+                value: 'edit',
+                child: Row(
+                  children: [
+                    Icon(Icons.edit,
+                        size: 18, color: const Color(0xFF64748B)),
+                    const SizedBox(width: 8),
+                    const Text('Edit'),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
+                value: 'delete',
+                child: Row(
+                  children: [
+                    Icon(Icons.delete,
+                        size: 18, color: const Color(0xFFEF4444)),
+                    const SizedBox(width: 8),
+                    const Text('Delete',
+                        style: TextStyle(color: Color(0xFFEF4444))),
+                  ],
+                ),
+              ),
+            ],
+            onSelected: (value) {
+              if (value == 'edit') {
+                onEdit();
+              } else if (value == 'delete') {
+                onDelete();
+              }
+            },
           ),
         ],
       ),

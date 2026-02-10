@@ -1,4 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart' hide Order; // HIDE Order
+import 'order_model.dart';
+import 'AddOrderDialog.dart';
+import 'OrderDetailsDialog.dart';
+
 
 class OrdersScreen extends StatefulWidget {
   const OrdersScreen({Key? key}) : super(key: key);
@@ -9,117 +14,206 @@ class OrdersScreen extends StatefulWidget {
 
 class _OrdersScreenState extends State<OrdersScreen> {
   String _selectedFilter = 'All';
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  final List<Map<String, dynamic>> _orders = [
-    {
-      'customerName': 'John Smith',
-      'orderId': '#ORD-1234',
-      'items': 5,
-      'time': '10:30 AM',
-      'date': 'Jan 25, 2026',
-      'amount': '\$145.00',
-      'status': 'completed',
-      'statusColor': Color(0xFF10B981),
-    },
-    {
-      'customerName': 'Emma Davis',
-      'orderId': '#ORD-1235',
-      'items': 3,
-      'time': '11:15 AM',
-      'date': 'Jan 25, 2026',
-      'amount': '\$89.50',
-      'status': 'pending',
-      'statusColor': Color(0xFFF59E0B),
-    },
-    {
-      'customerName': 'Mike Wilson',
-      'orderId': '#ORD-1236',
-      'items': 8,
-      'time': '09:45 AM',
-      'date': 'Jan 26, 2026',
-      'amount': '\$234.00',
-      'status': 'processing',
-      'statusColor': Color(0xFF2B7AFE),
-    },
+  final List<String> _statusFilters = [
+    'All',
+    'Pending',
+    'Processing',
+    'Completed',
+    'Cancelled',
   ];
+
+  Stream<QuerySnapshot> _getOrdersStream() {
+    Query query = _firestore.collection('orders');
+
+    if (_selectedFilter != 'All') {
+      query = query.where('status', isEqualTo: _selectedFilter.toLowerCase());
+    }
+
+    return query.orderBy('createdAt', descending: true).snapshots();
+  }
+
+  void _showAddOrderDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AddOrderDialog(
+        onSaved: () => setState(() {}),
+      ),
+    );
+  }
+
+  void _showOrderDetails(Order order) {
+    showDialog(
+      context: context,
+      builder: (context) => OrderDetailsDialog(order: order),
+    );
+  }
+
+  Future<void> _updateOrderStatus(String orderId, String newStatus) async {
+    await _firestore.collection('orders').doc(orderId).update({
+      'status': newStatus.toLowerCase(),
+      'updatedAt': Timestamp.now(),
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Header
-          Padding(
-            padding: const EdgeInsets.all(20),
-            child: const Text(
-              'Orders',
-              style: TextStyle(
-                fontSize: 32,
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
+    return Scaffold(
+      backgroundColor: const Color(0xFF0A1628),
+      body: SafeArea(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Header with Add Button
+            Padding(
+              padding: const EdgeInsets.all(20),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Orders',
+                    style: TextStyle(
+                      fontSize: 32,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                  ElevatedButton.icon(
+                    onPressed: _showAddOrderDialog,
+                    icon: const Icon(Icons.add, size: 20),
+                    label: const Text('Add Order'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF2B7AFE),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 12,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      elevation: 0,
+                    ),
+                  ),
+                ],
               ),
             ),
-          ),
 
-          // Filter Buttons
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: Row(
-              children: [
-                _FilterButton(
-                  label: 'All',
-                  isSelected: _selectedFilter == 'All',
-                  onTap: () => setState(() => _selectedFilter = 'All'),
-                ),
-                const SizedBox(width: 12),
-                _FilterButton(
-                  label: 'Pending',
-                  isSelected: _selectedFilter == 'Pending',
-                  onTap: () => setState(() => _selectedFilter = 'Pending'),
-                ),
-                const SizedBox(width: 12),
-                _FilterButton(
-                  label: 'Completed',
-                  isSelected: _selectedFilter == 'Completed',
-                  onTap: () => setState(() => _selectedFilter = 'Completed'),
-                ),
-                const SizedBox(width: 12),
-                _FilterButton(
-                  label: 'Cancelled',
-                  isSelected: _selectedFilter == 'Cancelled',
-                  onTap: () => setState(() => _selectedFilter = 'Cancelled'),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 24),
-
-          // Orders List
-          Expanded(
-            child: ListView.builder(
+            // Filter Buttons
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.symmetric(horizontal: 20),
-              itemCount: _orders.length,
-              itemBuilder: (context, index) {
-                final order = _orders[index];
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 16),
-                  child: _OrderCard(
-                    customerName: order['customerName'],
-                    orderId: order['orderId'],
-                    items: order['items'],
-                    time: order['time'],
-                    date: order['date'],
-                    amount: order['amount'],
-                    status: order['status'],
-                    statusColor: order['statusColor'],
-                  ),
-                );
-              },
+              child: Row(
+                children: _statusFilters.map((filter) {
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 12),
+                    child: _FilterButton(
+                      label: filter,
+                      isSelected: _selectedFilter == filter,
+                      onTap: () => setState(() => _selectedFilter = filter),
+                    ),
+                  );
+                }).toList(),
+              ),
             ),
-          ),
-        ],
+            const SizedBox(height: 24),
+
+            // Orders List with StreamBuilder
+            Expanded(
+              child: StreamBuilder<QuerySnapshot>(
+                stream: _getOrdersStream(),
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const Center(
+                      child: CircularProgressIndicator(
+                        color: Color(0xFF2B7AFE),
+                      ),
+                    );
+                  }
+
+                  if (snapshot.hasError) {
+                    return const Center(
+                      child: Text(
+                        'Error loading orders',
+                        style: TextStyle(color: Colors.white),
+                      ),
+                    );
+                  }
+
+                  if (snapshot.data!.docs.isEmpty) {
+                    return Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Container(
+                            width: 100,
+                            height: 100,
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF1E293B),
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(
+                              Icons.shopping_bag_outlined,
+                              color: Color(0xFF64748B),
+                              size: 48,
+                            ),
+                          ),
+                          const SizedBox(height: 20),
+                          const Text(
+                            'No orders found',
+                            style: TextStyle(
+                              color: Color(0xFF94A3B8),
+                              fontSize: 16,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          const Text(
+                            'Create your first order to get started',
+                            style: TextStyle(
+                              color: Color(0xFF64748B),
+                              fontSize: 14,
+                            ),
+                          ),
+                          const SizedBox(height: 24),
+                          ElevatedButton(
+                            onPressed: _showAddOrderDialog,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF2B7AFE),
+                            ),
+                            child: const Text('Create Order'),
+                          ),
+                        ],
+                      ),
+                    );
+                  }
+
+                  final orders = snapshot.data!.docs
+                      .map((doc) => Order.fromFirestore(doc))
+                      .toList();
+
+                  return ListView.builder(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    itemCount: orders.length,
+                    itemBuilder: (context, index) {
+                      final order = orders[index];
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 16),
+                        child: _OrderCard(
+                          order: order,
+                          onViewDetails: () => _showOrderDetails(order),
+                          onStatusUpdate: (newStatus) =>
+                              _updateOrderStatus(order.id!, newStatus),
+                        ),
+                      );
+                    },
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -161,25 +255,15 @@ class _FilterButton extends StatelessWidget {
 }
 
 class _OrderCard extends StatelessWidget {
-  final String customerName;
-  final String orderId;
-  final int items;
-  final String time;
-  final String date;
-  final String amount;
-  final String status;
-  final Color statusColor;
+  final Order order;
+  final VoidCallback onViewDetails;
+  final Function(String) onStatusUpdate;
 
   const _OrderCard({
     Key? key,
-    required this.customerName,
-    required this.orderId,
-    required this.items,
-    required this.time,
-    required this.date,
-    required this.amount,
-    required this.status,
-    required this.statusColor,
+    required this.order,
+    required this.onViewDetails,
+    required this.onStatusUpdate,
   }) : super(key: key);
 
   @override
@@ -199,7 +283,7 @@ class _OrderCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    customerName,
+                    order.customerName,
                     style: const TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w600,
@@ -208,7 +292,7 @@ class _OrderCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    orderId,
+                    'Order #${order.id!.substring(0, 8)}',
                     style: const TextStyle(
                       fontSize: 12,
                       color: Color(0xFF64748B),
@@ -219,15 +303,15 @@ class _OrderCard extends StatelessWidget {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
-                  color: statusColor.withOpacity(0.1),
+                  color: order.statusColor.withOpacity(0.1),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
-                  status,
+                  order.status.toUpperCase(),
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
-                    color: statusColor,
+                    color: order.statusColor,
                   ),
                 ),
               ),
@@ -238,17 +322,17 @@ class _OrderCard extends StatelessWidget {
             children: [
               _InfoItem(
                 icon: Icons.shopping_bag_outlined,
-                text: '$items items',
+                text: '${order.totalItems} items',
               ),
               const SizedBox(width: 24),
               _InfoItem(
                 icon: Icons.access_time,
-                text: time,
+                text: order.formattedTime,
               ),
               const SizedBox(width: 24),
               _InfoItem(
                 icon: Icons.calendar_today,
-                text: date,
+                text: order.formattedDate,
               ),
             ],
           ),
@@ -257,33 +341,62 @@ class _OrderCard extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                amount,
+                '\$${order.totalAmount.toStringAsFixed(2)}',
                 style: const TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
                   color: Colors.white,
                 ),
               ),
-              TextButton(
-                onPressed: () {},
-                child: Row(
-                  children: const [
-                    Text(
-                      'View Details',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: Color(0xFF2B7AFE),
+              Row(
+                children: [
+                  if (order.status != 'completed' && order.status != 'cancelled')
+                    PopupMenuButton<String>(
+                      icon: Icon(
+                        Icons.more_vert,
+                        color: order.statusColor,
                       ),
+                      itemBuilder: (context) => [
+                        if (order.status == 'pending')
+                          const PopupMenuItem(
+                            value: 'processing',
+                            child: Text('Mark as Processing'),
+                          ),
+                        if (order.status == 'processing')
+                          const PopupMenuItem(
+                            value: 'completed',
+                            child: Text('Mark as Completed'),
+                          ),
+                        const PopupMenuItem(
+                          value: 'cancelled',
+                          child: Text('Cancel Order'),
+                        ),
+                      ],
+                      onSelected: onStatusUpdate,
                     ),
-                    SizedBox(width: 4),
-                    Icon(
-                      Icons.arrow_forward,
-                      size: 16,
-                      color: Color(0xFF2B7AFE),
+                  const SizedBox(width: 8),
+                  TextButton(
+                    onPressed: onViewDetails,
+                    child: Row(
+                      children: const [
+                        Text(
+                          'View Details',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF2B7AFE),
+                          ),
+                        ),
+                        SizedBox(width: 4),
+                        Icon(
+                          Icons.arrow_forward,
+                          size: 16,
+                          color: Color(0xFF2B7AFE),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ],
           ),

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "328635602290",
+    "project_id": "pharmacare-2b107",
+    "storage_bucket": "pharmacare-2b107.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:328635602290:android:3c55e80b30f565d4f8b9eb",
+        "android_client_info": {
+          "package_name": "com.example.pharmacare"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAPFmMhsQN_-LStcMCEGRQ84yNE68OYuvo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

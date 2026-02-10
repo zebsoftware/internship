@@ -92,9 +92,13 @@ class DashboardContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isSmallScreen = screenWidth < 400;
+    final paddingValue = isSmallScreen ? 16.0 : 20.0;
+
     return SafeArea(
       child: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
+        padding: EdgeInsets.all(paddingValue),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -157,14 +161,19 @@ class DashboardContent extends StatelessWidget {
 
             // Search Bar
             Container(
+              width: double.infinity,
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
               decoration: BoxDecoration(
                 color: const Color(0xFF1E293B),
                 borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: const Color(0xFF334155),
+                  width: 1,
+                ),
               ),
               child: Row(
                 children: const [
-                  Icon(Icons.search, color: Color(0xFF64748B)),
+                  Icon(Icons.search, color: Color(0xFF64748B), size: 20),
                   SizedBox(width: 12),
                   Text(
                     'Search medicines, orders...',
@@ -178,61 +187,112 @@ class DashboardContent extends StatelessWidget {
             ),
             const SizedBox(height: 24),
 
-            // Stats Cards
-            Row(
-              children: [
-                Expanded(
-                  child: _StatCard(
-                    icon: Icons.attach_money,
-                    iconColor: const Color(0xFF10B981),
-                    title: 'Revenue',
-                    value: '\$24.5K',
-                    trend: Icons.trending_up,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _StatCard(
-                    icon: Icons.shopping_cart,
-                    iconColor: const Color(0xFF2B7AFE),
-                    title: 'Orders',
-                    value: '342',
-                    trend: Icons.trending_up,
-                  ),
-                ),
-              ],
+            // Stats Grid - Responsive layout
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final containerWidth = constraints.maxWidth;
+                final crossAxisCount = containerWidth < 400 ? 2 : 4;
+                final childAspectRatio = containerWidth < 400 ? 1.2 : 1.0;
+                
+                return GridView.count(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  crossAxisCount: crossAxisCount,
+                  crossAxisSpacing: 12,
+                  mainAxisSpacing: 12,
+                  childAspectRatio: childAspectRatio,
+                  children: [
+                    _StatCard(
+                      icon: Icons.attach_money_rounded,
+                      iconColor: const Color(0xFF10B981),
+                      title: 'Revenue',
+                      value: '\$24.5K',
+                      trend: '+12.5%',
+                      trendColor: const Color(0xFF10B981),
+                      iconBackground: const Color(0xFF10B981).withOpacity(0.1),
+                    ),
+                    _StatCard(
+                      icon: Icons.shopping_cart_rounded,
+                      iconColor: const Color(0xFF2B7AFE),
+                      title: 'Orders',
+                      value: '342',
+                      trend: '+8.2%',
+                      trendColor: const Color(0xFF10B981),
+                      iconBackground: const Color(0xFF2B7AFE).withOpacity(0.1),
+                    ),
+                    if (containerWidth >= 400) ...[
+                      _StatCard(
+                        icon: Icons.inventory_2_rounded,
+                        iconColor: const Color(0xFFF59E0B),
+                        title: 'Low Stock',
+                        value: '23',
+                        trend: '-5.3%',
+                        trendColor: const Color(0xFFEF4444),
+                        iconBackground: const Color(0xFFF59E0B).withOpacity(0.1),
+                      ),
+                      _StatCard(
+                        icon: Icons.people_rounded,
+                        iconColor: const Color(0xFF8B5CF6),
+                        title: 'Customers',
+                        value: '1.2K',
+                        trend: '+15.7%',
+                        trendColor: const Color(0xFF10B981),
+                        iconBackground: const Color(0xFF8B5CF6).withOpacity(0.1),
+                      ),
+                    ],
+                  ],
+                );
+              },
             ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: _StatCard(
-                    icon: Icons.inventory_2,
-                    iconColor: const Color(0xFFF59E0B),
-                    title: 'Low Stock',
-                    value: '23',
-                    trend: Icons.warning_amber,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _StatCard(
-                    icon: Icons.people,
-                    iconColor: const Color(0xFF8B5CF6),
-                    title: 'Customers',
-                    value: '1.2K',
-                    trend: Icons.trending_up,
-                  ),
-                ),
-              ],
+
+            // For small screens: Show Low Stock and Customers in second row
+            LayoutBuilder(
+              builder: (context, constraints) {
+                if (constraints.maxWidth >= 400) {
+                  return const SizedBox.shrink();
+                }
+                return Column(
+                  children: [
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _StatCard(
+                            icon: Icons.inventory_2_rounded,
+                            iconColor: const Color(0xFFF59E0B),
+                            title: 'Low Stock',
+                            value: '23',
+                            trend: '-5.3%',
+                            trendColor: const Color(0xFFEF4444),
+                            iconBackground: const Color(0xFFF59E0B).withOpacity(0.1),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _StatCard(
+                            icon: Icons.people_rounded,
+                            iconColor: const Color(0xFF8B5CF6),
+                            title: 'Customers',
+                            value: '1.2K',
+                            trend: '+15.7%',
+                            trendColor: const Color(0xFF10B981),
+                            iconBackground: const Color(0xFF8B5CF6).withOpacity(0.1),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                );
+              },
             ),
+
             const SizedBox(height: 32),
 
-            // Recent Orders
+            // Recent Orders Header
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: const [
-                Text(
+              children: [
+                const Text(
                   'Recent Orders',
                   style: TextStyle(
                     fontSize: 18,
@@ -240,7 +300,28 @@ class DashboardContent extends StatelessWidget {
                     color: Colors.white,
                   ),
                 ),
-                Icon(Icons.home_rounded, color: Color(0xFF2B7AFE)),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF1E293B),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: const Color(0xFF334155)),
+                  ),
+                  child: const Row(
+                    children: [
+                      Icon(Icons.home_rounded, color: Color(0xFF2B7AFE), size: 16),
+                      SizedBox(width: 4),
+                      Text(
+                        'Home',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ],
             ),
             const SizedBox(height: 16),
@@ -249,7 +330,6 @@ class DashboardContent extends StatelessWidget {
             _OrderCard(
               customerName: 'John Smith',
               orderId: '#ORD-1234',
-              amount: '\$145',
               status: 'completed',
               statusColor: const Color(0xFF10B981),
             ),
@@ -257,7 +337,6 @@ class DashboardContent extends StatelessWidget {
             _OrderCard(
               customerName: 'Emma Davis',
               orderId: '#ORD-1235',
-              amount: '\$89',
               status: 'pending',
               statusColor: const Color(0xFFF59E0B),
             ),
@@ -273,7 +352,9 @@ class _StatCard extends StatelessWidget {
   final Color iconColor;
   final String title;
   final String value;
-  final IconData trend;
+  final String trend;
+  final Color trendColor;
+  final Color iconBackground;
 
   const _StatCard({
     Key? key,
@@ -282,6 +363,8 @@ class _StatCard extends StatelessWidget {
     required this.title,
     required this.value,
     required this.trend,
+    required this.trendColor,
+    required this.iconBackground,
   }) : super(key: key);
 
   @override
@@ -294,22 +377,30 @@ class _StatCard extends StatelessWidget {
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Container(
-                padding: const EdgeInsets.all(10),
+                padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: iconColor.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(10),
+                  color: iconBackground,
+                  borderRadius: BorderRadius.circular(8),
                 ),
-                child: Icon(icon, color: iconColor, size: 24),
+                child: Icon(icon, color: iconColor, size: 20),
               ),
-              Icon(trend, color: const Color(0xFF10B981), size: 20),
+              Text(
+                trend,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: trendColor,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
             ],
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 8),
           Text(
             title,
             style: const TextStyle(
@@ -321,7 +412,7 @@ class _StatCard extends StatelessWidget {
           Text(
             value,
             style: const TextStyle(
-              fontSize: 24,
+              fontSize: 20,
               fontWeight: FontWeight.bold,
               color: Colors.white,
             ),
@@ -335,7 +426,6 @@ class _StatCard extends StatelessWidget {
 class _OrderCard extends StatelessWidget {
   final String customerName;
   final String orderId;
-  final String amount;
   final String status;
   final Color statusColor;
 
@@ -343,7 +433,6 @@ class _OrderCard extends StatelessWidget {
     Key? key,
     required this.customerName,
     required this.orderId,
-    required this.amount,
     required this.status,
     required this.statusColor,
   }) : super(key: key);
@@ -380,24 +469,24 @@ class _OrderCard extends StatelessWidget {
               ),
             ],
           ),
-          Row(
-            children: [
-              Text(
-                amount,
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: statusColor.withOpacity(0.1),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 6,
+                  height: 6,
+                  decoration: BoxDecoration(
+                    color: statusColor,
+                    shape: BoxShape.circle,
+                  ),
                 ),
-              ),
-              const SizedBox(width: 12),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  color: statusColor.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
+                const SizedBox(width: 6),
+                Text(
                   status,
                   style: TextStyle(
                     fontSize: 12,
@@ -405,8 +494,8 @@ class _OrderCard extends StatelessWidget {
                     color: statusColor,
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ],
       ),
