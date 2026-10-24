@@ -1,3 +1,4 @@
+import 'pharmacy_settings.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart' hide Order; // HIDE Order
 import 'order_model.dart';
@@ -341,7 +342,7 @@ class _OrderCard extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                '\$${order.totalAmount.toStringAsFixed(2)}',
+                formatMoney(order.totalAmount, PharmacySettingsService.instance.current.value.currency),
                 style: const TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
