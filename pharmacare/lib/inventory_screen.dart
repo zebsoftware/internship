@@ -1,3 +1,4 @@
+import 'adjust_stock_dialog.dart';
 import 'pharmacy_settings.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -55,6 +56,10 @@ class _InventoryScreenState extends State<InventoryScreen> {
         onSaved: () => setState(() {}),
       ),
     );
+  }
+
+  void _showStockAdjustment(Medicine medicine) {
+    showDialog(context: context, builder: (_) => AdjustStockDialog(medicine: medicine));
   }
 
   Future<void> _deleteMedicine(String medicineId) async {
@@ -314,6 +319,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
                         onEdit: () =>
                             _showAddMedicineDialog(medicine: medicine),
                         onDelete: () => _deleteMedicine(medicine.id!),
+                        onStock: () => _showStockAdjustment(medicine),
                       ),
                     );
                   },
@@ -368,12 +374,14 @@ class _InventoryCard extends StatelessWidget {
   final Medicine medicine;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
+  final VoidCallback onStock;
 
   const _InventoryCard({
     Key? key,
     required this.medicine,
     required this.onEdit,
     required this.onDelete,
+    required this.onStock,
   }) : super(key: key);
 
   @override
@@ -477,6 +485,7 @@ class _InventoryCard extends StatelessWidget {
                   ],
                 ),
               ),
+              const PopupMenuItem(value: 'stock', child: Text('Add / Return Stock')),
               PopupMenuItem(
                 value: 'delete',
                 child: Row(
@@ -493,6 +502,8 @@ class _InventoryCard extends StatelessWidget {
             onSelected: (value) {
               if (value == 'edit') {
                 onEdit();
+              } else if (value == 'stock') {
+                onStock();
               } else if (value == 'delete') {
                 onDelete();
               }
