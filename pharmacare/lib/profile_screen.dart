@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'login_screen.dart';
+import 'settings_screen.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({Key? key}) : super(key: key);
@@ -79,7 +81,7 @@ class ProfileScreen extends StatelessWidget {
 
                   // Settings Icon
                   IconButton(
-                    onPressed: () {},
+                    onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SettingsScreen())),
                     icon: const Icon(
                       Icons.settings,
                       color: Colors.white,
@@ -143,13 +145,15 @@ class ProfileScreen extends StatelessWidget {
               icon: Icons.settings_outlined,
               iconColor: const Color(0xFF64748B),
               title: 'Settings',
-              onTap: () {},
+              onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SettingsScreen())),
             ),
             const SizedBox(height: 32),
 
             // Logout Button
             GestureDetector(
-              onTap: () {
+              onTap: () async {
+                await FirebaseAuth.instance.signOut();
+                if (!context.mounted) return;
                 Navigator.of(context).pushAndRemoveUntil(
                   MaterialPageRoute(builder: (_) => const LoginScreen()),
                   (route) => false,
