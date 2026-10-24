@@ -1,3 +1,4 @@
+import 'pharmacy_settings.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'medicine_model.dart';
@@ -433,7 +434,7 @@ class _InventoryCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Text(
-                '\$${medicine.sellingPrice.toStringAsFixed(2)}',
+                formatMoney(medicine.sellingPrice, PharmacySettingsService.instance.current.value.currency),
                 style: const TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
