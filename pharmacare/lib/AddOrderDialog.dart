@@ -166,7 +166,7 @@ class _AddOrderDialogState extends State<AddOrderDialog> {
 
       await _firestore.runTransaction((transaction) async {
         final quantities = <String, int>{};
-        final refs = <String, DocumentReference<Map<String, dynamic>>>{};
+        final refs = <String, firestore.DocumentReference<Map<String, dynamic>>>{};
 
         // Read all stock documents before scheduling any writes.
         for (final item in items) {
