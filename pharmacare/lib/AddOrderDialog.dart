@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart' as firestore; // Add prefix
 import 'package:pharmacare/medicine_model.dart';
 import 'order_model.dart';
+import 'pharmacy_settings.dart';
 
 class AddOrderDialog extends StatefulWidget {
   final VoidCallback onSaved;
@@ -27,6 +29,7 @@ class _AddOrderDialogState extends State<AddOrderDialog> {
   // Order items
   final List<OrderItem> _selectedItems = [];
   List<Medicine> _availableMedicines = [];
+  StreamSubscription<firestore.QuerySnapshot<Map<String, dynamic>>>? _inventorySubscription;
 
   // For adding new item
   Medicine? _selectedMedicine;
@@ -35,25 +38,34 @@ class _AddOrderDialogState extends State<AddOrderDialog> {
   @override
   void initState() {
     super.initState();
+    PharmacySettingsService.instance.listen();
     _loadMedicines();
   }
 
-  Future<void> _loadMedicines() async {
+  void _loadMedicines() {
     try {
-      final snapshot = await _firestore
-          .collection('medicines')
-          .where('quantity', isGreaterThan: 0)
-          .orderBy('quantity')
-          .get();
-
-      setState(() {
-        _availableMedicines = snapshot.docs
-            .map((doc) => Medicine.fromFirestore(doc))
+      _inventorySubscription = _firestore.collection('medicines').snapshots().listen((snapshot) {
+        if (!mounted) return;
+        setState(() {
+          _availableMedicines = snapshot.docs.map((doc) => Medicine.fromFirestore(doc))
+            .where((medicine) => medicine.quantity > 0 && !medicine.expiryDate.isBefore(DateTime.now()))
             .toList();
+        });
       });
     } catch (e) {
       print('Error loading medicines: $e');
     }
+  }
+
+  @override
+  void dispose() {
+    _inventorySubscription?.cancel();
+    _customerNameController.dispose();
+    _customerPhoneController.dispose();
+    _customerEmailController.dispose();
+    _notesController.dispose();
+    _quantityController.dispose();
+    super.dispose();
   }
 
   void _addItem() {
@@ -127,7 +139,7 @@ class _AddOrderDialogState extends State<AddOrderDialog> {
   }
 
   double get _tax {
-    return _subtotal * 0.13; // 13% tax
+    return _subtotal * PharmacySettingsService.instance.current.value.taxPercent / 100;
   }
 
   double get _total {
@@ -203,7 +215,7 @@ class _AddOrderDialogState extends State<AddOrderDialog> {
           }
           transaction.update(refs[entry.key]!, {'quantity': remaining});
         }
-        transaction.set(orderRef, order.toMap());
+        transaction.set(orderRef, {...order.toMap(), 'currency': PharmacySettingsService.instance.current.value.currency, 'taxPercent': PharmacySettingsService.instance.current.value.taxPercent});
       });
 
       if (!mounted) return;
