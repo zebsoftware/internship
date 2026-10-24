@@ -134,70 +134,88 @@ class _AddOrderDialogState extends State<AddOrderDialog> {
     return _subtotal + _tax;
   }
 
+  bool _isSavingOrder = false;
+
   Future<void> _createOrder() async {
-    if (_formKey.currentState!.validate() && _selectedItems.isNotEmpty) {
-      try {
-        // Create order
-        final order = Order(  // This is your custom Order from order_model.dart
-          customerName: _customerNameController.text.trim(),
-          customerPhone: _customerPhoneController.text.trim(),
-          customerEmail: _customerEmailController.text.trim(),
-          items: _selectedItems,
-          subtotal: _subtotal,
-          tax: _tax,
-          totalAmount: _total,
-          status: _status,
-          paymentMethod: _paymentMethod,
-          notes: _notesController.text.trim(),
-        );
+    if (_isSavingOrder) return;
+    if (!_formKey.currentState!.validate()) return;
 
-        // Add to Firestore
-        final orderDoc = await _firestore.collection('orders').add(order.toMap());
+    if (_selectedItems.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please add at least one medicine')),
+      );
+      return;
+    }
 
-        // Update medicine quantities
-        for (final item in _selectedItems) {
-          final medicineDoc = await _firestore
-              .collection('medicines')
-              .doc(item.medicineId)
-              .get();
+    setState(() => _isSavingOrder = true);
+    try {
+      final items = List<OrderItem>.of(_selectedItems);
+      final order = Order(
+        customerName: _customerNameController.text.trim(),
+        customerPhone: _customerPhoneController.text.trim(),
+        customerEmail: _customerEmailController.text.trim(),
+        items: items,
+        subtotal: _subtotal,
+        tax: _tax,
+        totalAmount: _total,
+        status: _status,
+        paymentMethod: _paymentMethod,
+        notes: _notesController.text.trim(),
+      );
+      final orderRef = _firestore.collection('orders').doc();
 
-          if (medicineDoc.exists) {
-            final currentQuantity = medicineDoc.data()!['quantity'] ?? 0;
-            final newQuantity = currentQuantity - item.quantity;
+      await _firestore.runTransaction((transaction) async {
+        final quantities = <String, int>{};
+        final refs = <String, DocumentReference<Map<String, dynamic>>>{};
 
-            await _firestore
-                .collection('medicines')
-                .doc(item.medicineId)
-                .update({
-                  'quantity': newQuantity,
-                });
+        // Read all stock documents before scheduling any writes.
+        for (final item in items) {
+          if (item.quantity <= 0 || item.medicineId.isEmpty) {
+            throw StateError('Invalid quantity or medicine selection.');
           }
+          if (refs.containsKey(item.medicineId)) continue;
+          final ref = _firestore.collection('medicines').doc(item.medicineId);
+          final snapshot = await transaction.get(ref);
+          if (!snapshot.exists) {
+            throw StateError('${item.medicineName} is no longer available.');
+          }
+          final stock = snapshot.data()?['quantity'];
+          if (stock is! num || stock < 0) {
+            throw StateError('Invalid stock record for ${item.medicineName}.');
+          }
+          refs[item.medicineId] = ref;
+          quantities[item.medicineId] = stock.toInt();
         }
 
-        widget.onSaved();
-        Navigator.pop(context);
+        final requested = <String, int>{};
+        for (final item in items) {
+          requested.update(
+            item.medicineId,
+            (value) => value + item.quantity,
+            ifAbsent: () => item.quantity,
+          );
+        }
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            backgroundColor: Color(0xFF10B981),
-            content: Text('Order created successfully'),
-          ),
-        );
-      } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            backgroundColor: const Color(0xFFEF4444),
-            content: Text('Error: $e'),
-          ),
-        );
-      }
-    } else if (_selectedItems.isEmpty) {
+        for (final entry in requested.entries) {
+          final remaining = quantities[entry.key]! - entry.value;
+          if (remaining < 0) {
+            throw StateError('Insufficient stock for one or more medicines.');
+          }
+          transaction.update(refs[entry.key]!, {'quantity': remaining});
+        }
+        transaction.set(orderRef, order.toMap());
+      });
+
+      if (!mounted) return;
+      widget.onSaved();
+      Navigator.of(context).pop();
+    } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          backgroundColor: Color(0xFFEF4444),
-          content: Text('Please add at least one item'),
-        ),
+        SnackBar(content: Text('Unable to create order: $e')),
       );
+    } finally {
+      if (mounted) setState(() => _isSavingOrder = false);
     }
   }
 
@@ -674,7 +692,7 @@ class _AddOrderDialogState extends State<AddOrderDialog> {
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
-                  onPressed: _createOrder,
+                  onPressed: _isSavingOrder ? null : _createOrder,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF2B7AFE),
                     padding: const EdgeInsets.symmetric(vertical: 16),
