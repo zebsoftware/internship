@@ -510,7 +510,7 @@ class _AddOrderDialogState extends State<AddOrderDialog> {
                                       ),
                                     ),
                                     Text(
-                                      '\$${item.price.toStringAsFixed(2)} × ${item.quantity}',
+                                      '${formatMoney(item.price, PharmacySettingsService.instance.current.value.currency)} × ${item.quantity}',
                                       style: const TextStyle(
                                         color: Color(0xFF94A3B8),
                                         fontSize: 12,
@@ -520,7 +520,7 @@ class _AddOrderDialogState extends State<AddOrderDialog> {
                                 ),
                               ),
                               Text(
-                                '\$${item.total.toStringAsFixed(2)}',
+                                formatMoney(item.total, PharmacySettingsService.instance.current.value.currency),
                                 style: const TextStyle(
                                   color: Colors.white,
                                   fontWeight: FontWeight.bold,
@@ -554,17 +554,17 @@ class _AddOrderDialogState extends State<AddOrderDialog> {
                   children: [
                     _SummaryRow(
                       label: 'Subtotal',
-                      value: '\$${_subtotal.toStringAsFixed(2)}',
+                      value: formatMoney(_subtotal, PharmacySettingsService.instance.current.value.currency),
                     ),
                     const SizedBox(height: 8),
                     _SummaryRow(
                       label: 'Tax (13%)',
-                      value: '\$${_tax.toStringAsFixed(2)}',
+                      value: formatMoney(_tax, PharmacySettingsService.instance.current.value.currency),
                     ),
                     const Divider(color: Color(0xFF334155), height: 24),
                     _SummaryRow(
                       label: 'Total',
-                      value: '\$${_total.toStringAsFixed(2)}',
+                      value: formatMoney(_total, PharmacySettingsService.instance.current.value.currency),
                       isTotal: true,
                     ),
                   ],
