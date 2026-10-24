@@ -19,7 +19,7 @@ dependencies:
   firebase_crashlytics: ^5.0.7
   firebase_ui_auth: ^3.0.1
   firebase_ui_firestore: ^2.0.1
-  intl: 0.20.2  
+  intl: ^0.20.3  
 
 dev_dependencies:
   flutter_test:
