@@ -52,7 +52,7 @@ const supportedCurrencies = ['PKR', 'USD', 'EUR', 'GBP', 'AED'];
 
 String formatMoney(num amount, String currency) {
   final symbols = {'PKR': 'Rs ', 'USD': '\$', 'EUR': '€', 'GBP': '£', 'AED': 'AED '};
-  return '${symbols[currency] ?? '$'}${NumberFormat('#,##0.00').format(amount)}';
+  return '${symbols[currency] ?? 'Rs '}${NumberFormat('#,##0.00').format(amount)}';
 }
 
 /// One currency per pharmacy. Switching currency after priced records exist is
