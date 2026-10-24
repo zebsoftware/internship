@@ -1,3 +1,4 @@
+import 'pharmacy_settings.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
@@ -314,7 +315,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                             ),
                             const SizedBox(height: 12),
                             Text(
-                              '\$${NumberFormat('#,###').format(totalRevenue)}',
+                              formatMoney(totalRevenue, PharmacySettingsService.instance.current.value.currency),
                               style: const TextStyle(
                                 fontSize: 36,
                                 fontWeight: FontWeight.bold,
@@ -689,7 +690,7 @@ class _ProductCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Text(
-                '\$${NumberFormat('#,###').format(revenue)}',
+                formatMoney(revenue, PharmacySettingsService.instance.current.value.currency),
                 style: const TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
