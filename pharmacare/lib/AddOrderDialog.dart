@@ -128,6 +128,27 @@ class _AddOrderDialogState extends State<AddOrderDialog> {
     _quantityController.clear();
   }
 
+  void _changeItemQuantity(int index, int quantity) {
+    if (index < 0 || index >= _selectedItems.length) return;
+    final original = _selectedItems[index];
+    final available = _availableMedicines.where((m) => m.id == original.medicineId);
+    if (available.isEmpty || quantity < 1 || quantity > available.first.quantity) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Insufficient available stock')),
+      );
+      return;
+    }
+    setState(() {
+      _selectedItems[index] = OrderItem(
+        medicineId: original.medicineId,
+        medicineName: original.medicineName,
+        price: original.price,
+        quantity: quantity,
+        total: original.price * quantity,
+      );
+    });
+  }
+
   void _removeItem(int index) {
     setState(() {
       _selectedItems.removeAt(index);
@@ -525,6 +546,19 @@ class _AddOrderDialogState extends State<AddOrderDialog> {
                                   color: Colors.white,
                                   fontWeight: FontWeight.bold,
                                 ),
+                              ),
+                              IconButton(
+                                tooltip: 'Decrease quantity',
+                                icon: const Icon(Icons.remove_circle_outline),
+                                onPressed: item.quantity > 1
+                                    ? () => _changeItemQuantity(index, item.quantity - 1)
+                                    : null,
+                              ),
+                              Text('${item.quantity}'),
+                              IconButton(
+                                tooltip: 'Increase quantity',
+                                icon: const Icon(Icons.add_circle_outline),
+                                onPressed: () => _changeItemQuantity(index, item.quantity + 1),
                               ),
                               IconButton(
                                 icon: const Icon(
