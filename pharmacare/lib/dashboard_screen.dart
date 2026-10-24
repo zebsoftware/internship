@@ -1,3 +1,4 @@
+import 'pharmacy_settings.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -376,8 +377,8 @@ class _DashboardContentState extends State<DashboardContent> {
                       builder: (context, snapshot) {
                         double revenue = snapshot.data ?? 0;
                         String revenueText = revenue >= 1000 
-                            ? '\$${(revenue/1000).toStringAsFixed(1)}K'
-                            : '\$${revenue.toStringAsFixed(0)}';
+                            ?  '${formatMoney(revenue/1000, PharmacySettingsService.instance.current.value.currency)}K'
+                            : formatMoney(revenue, PharmacySettingsService.instance.current.value.currency);
                         
                         return _StatCard(
                           icon: Icons.attach_money_rounded,
