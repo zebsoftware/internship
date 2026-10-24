@@ -1,4 +1,5 @@
 import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'firebase_options.dart';
@@ -18,7 +19,9 @@ void main() async {
     options: DefaultFirebaseOptions.currentPlatform,
   );
   
-  PharmacySettingsService.instance.listen();
+  FirebaseAuth.instance.authStateChanges().listen((_) {
+    PharmacySettingsService.instance.listen();
+  });
   runApp(const PharmaCareApp());
 }
 
