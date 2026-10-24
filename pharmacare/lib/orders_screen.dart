@@ -53,10 +53,67 @@ class _OrdersScreenState extends State<OrdersScreen> {
   }
 
   Future<void> _updateOrderStatus(String orderId, String newStatus) async {
-    await _firestore.collection('orders').doc(orderId).update({
-      'status': newStatus.toLowerCase(),
-      'updatedAt': Timestamp.now(),
-    });
+    final target = newStatus.toLowerCase();
+    try {
+      final orderRef = _firestore.collection('orders').doc(orderId);
+      await _firestore.runTransaction((transaction) async {
+        final orderDoc = await transaction.get(orderRef);
+        if (!orderDoc.exists) throw StateError('Order no longer exists');
+        final data = orderDoc.data()!;
+        final previous = (data['status'] as String? ?? 'pending').toLowerCase();
+        if (previous == target) return;
+        if (previous == 'cancelled') {
+          throw StateError('Cancelled orders cannot be reopened');
+        }
+        if (target == 'cancelled') {
+          final requested = <String, int>{};
+          for (final raw in (data['items'] as List<dynamic>? ?? [])) {
+            final item = Map<String, dynamic>.from(raw as Map);
+            final id = item['medicineId'] as String?;
+            final qty = (item['quantity'] as num?)?.toInt() ?? 0;
+            if (id == null || id.isEmpty || qty <= 0) {
+              throw StateError('Order has invalid item data');
+            }
+            requested.update(id, (n) => n + qty, ifAbsent: () => qty);
+          }
+          final stockRefs = <String, DocumentReference<Map<String, dynamic>>>{};
+          final stock = <String, int>{};
+          // All reads must occur before any transaction writes.
+          for (final entry in requested.entries) {
+            final ref = _firestore.collection('medicines').doc(entry.key);
+            final snapshot = await transaction.get(ref);
+            if (!snapshot.exists) {
+              throw StateError('Cannot restore stock: medicine is missing');
+            }
+            final oldStock = snapshot.data()?['quantity'];
+            if (oldStock is! num || oldStock < 0) {
+              throw StateError('Cannot restore stock: invalid current quantity');
+            }
+            stockRefs[entry.key] = ref;
+            stock[entry.key] = oldStock.toInt();
+          }
+          for (final entry in requested.entries) {
+            transaction.update(stockRefs[entry.key]!, {
+              'quantity': stock[entry.key]! + entry.value,
+            });
+          }
+          transaction.update(orderRef, {
+            'status': 'cancelled',
+            'stockRestored': true,
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+        } else {
+          transaction.update(orderRef, {
+            'status': target,
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+        }
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not update order: $e')));
+    }
   }
 
   @override
