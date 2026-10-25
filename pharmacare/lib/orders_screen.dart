@@ -1,3 +1,4 @@
+import 'pharmacy_data.dart';
 import 'pharmacy_settings.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart' hide Order; // HIDE Order
@@ -26,7 +27,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
   ];
 
   Stream<QuerySnapshot> _getOrdersStream() {
-    Query query = _firestore.collection('orders');
+    Query query = PharmacyData.collection('orders');
 
     if (_selectedFilter != 'All') {
       query = query.where('status', isEqualTo: _selectedFilter.toLowerCase());
@@ -55,7 +56,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
   Future<void> _updateOrderStatus(String orderId, String newStatus) async {
     final target = newStatus.toLowerCase();
     try {
-      final orderRef = _firestore.collection('orders').doc(orderId);
+      final orderRef = PharmacyData.collection('orders').doc(orderId);
       await _firestore.runTransaction((transaction) async {
         final orderDoc = await transaction.get(orderRef);
         if (!orderDoc.exists) throw StateError('Order no longer exists');
@@ -80,7 +81,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
           final stock = <String, int>{};
           // All reads must occur before any transaction writes.
           for (final entry in requested.entries) {
-            final ref = _firestore.collection('medicines').doc(entry.key);
+            final ref = PharmacyData.collection('medicines').doc(entry.key);
             final snapshot = await transaction.get(ref);
             if (!snapshot.exists) {
               throw StateError('Cannot restore stock: medicine is missing');
