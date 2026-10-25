@@ -635,17 +635,19 @@ class _AddOrderDialogState extends State<AddOrderDialog> {
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
-                  onPressed: _isSavingOrder ? null : _createOrder,
+                  onPressed: _isSavingOrder || _selectedItems.isEmpty ? null : _createOrder,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF2B7AFE),
+                    foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(vertical: 16),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),
                   ),
                   child: const Text(
-                    'Create Order',
+                    'Place Order',
                     style: TextStyle(
+                      color: Colors.white,
                       fontSize: 16,
                       fontWeight: FontWeight.w600,
                     ),
