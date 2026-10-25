@@ -1,3 +1,4 @@
+import 'pharmacy_data.dart';
 import 'pharmacy_settings.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -40,7 +41,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           .get();
 
       // Get all medicines for top products calculation
-      final medicinesSnapshot = await _firestore.collection('medicines').get();
+      final medicinesSnapshot = await PharmacyData.collection('medicines').get();
 
       double totalRevenue = 0.0;
       int completedOrders = 0;
