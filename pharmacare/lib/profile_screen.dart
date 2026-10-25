@@ -2,6 +2,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'settings_screen.dart';
+import 'pharmacy_data.dart';
+import 'pharmacy_settings.dart';
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
@@ -38,7 +40,27 @@ class ProfileScreen extends StatelessWidget {
               ]),
             ),
           ),
-          const SizedBox(height: 26),
+          const SizedBox(height: 20),
+          ValueListenableBuilder<PharmacySettings>(
+            valueListenable: PharmacySettingsService.instance.current,
+            builder: (_, settings, __) => Card(child: ListTile(
+              leading: const Icon(Icons.storefront_rounded, color: Color(0xFF23D1AB)),
+              title: Text(settings.name),
+              subtitle: Text('Base currency: ${settings.currency} · Tax: ${settings.taxPercent}%'),
+            )),
+          ),
+          const SizedBox(height: 14),
+          StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+            stream: PharmacyData.collection('orders').snapshots(),
+            builder: (_, snapshot) {
+              final count = snapshot.data?.docs.where((d) => d.data()['archived'] != true).length ?? 0;
+              return Card(child: ListTile(
+                leading: const Icon(Icons.shopping_bag_outlined, color: Color(0xFF2B7AFE)),
+                title: Text('$count orders'), subtitle: const Text('Your account orders'),
+              ));
+            },
+          ),
+          const SizedBox(height: 12),
           Card(child: ListTile(
             leading: const Icon(Icons.settings_outlined, color: Color(0xFF2B7AFE)),
             title: const Text('Settings'),
