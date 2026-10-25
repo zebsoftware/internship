@@ -6,6 +6,7 @@ import 'firebase_options.dart';
 import 'login_screen.dart';
 import 'dashboard_screen.dart';
 import 'pharmacy_settings.dart';
+import 'splash_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -35,6 +36,11 @@ class PharmaCareApp extends StatelessWidget {
       title: 'PharmaCare',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
+        useMaterial3: true,
+        brightness: Brightness.dark,
+        appBarTheme: const AppBarTheme(backgroundColor: Color(0xFF071A31), foregroundColor: Colors.white),
+        cardTheme: CardThemeData(color: const Color(0xFF172A45), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20))),
+        elevatedButtonTheme: ElevatedButtonThemeData(style: ElevatedButton.styleFrom(foregroundColor: Colors.white)),
         primaryColor: const Color(0xFF2B7AFE),
         scaffoldBackgroundColor: const Color(0xFF0A1628),
         fontFamily: 'Inter',
@@ -58,15 +64,7 @@ class PharmaCareApp extends StatelessWidget {
           hintStyle: const TextStyle(color: Color(0xFF64748B)),
         ),
       ),
-      home: StreamBuilder<User?>(
-        stream: FirebaseAuth.instance.authStateChanges(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Scaffold(body: Center(child: CircularProgressIndicator()));
-          }
-          return snapshot.hasData ? const DashboardScreen() : const LoginScreen();
-        },
-      ),
+      home: const PharmaCareSplash(),
     );
   }
 }
