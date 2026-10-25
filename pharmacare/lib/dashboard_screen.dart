@@ -7,6 +7,7 @@ import 'orders_screen.dart';
 import 'inventory_screen.dart';
 import 'analytics_screen.dart';
 import 'profile_screen.dart';
+import 'pharma_home.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({Key? key}) : super(key: key);
@@ -20,7 +21,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   final User? currentUser = FirebaseAuth.instance.currentUser;
 
   final List<Widget> _screens = [
-    const DashboardContent(),
+    const PharmaHome(),
     const OrdersScreen(),
     const InventoryScreen(),
     const AnalyticsScreen(),
