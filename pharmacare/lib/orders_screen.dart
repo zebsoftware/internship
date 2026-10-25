@@ -154,7 +154,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0A1628),
+      backgroundColor: const Color(0xFF071A31),
       body: SafeArea(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -244,7 +244,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
                             width: 100,
                             height: 100,
                             decoration: BoxDecoration(
-                              color: const Color(0xFF1E293B),
+                              color: const Color(0xFF182B45),
                               shape: BoxShape.circle,
                             ),
                             child: const Icon(
@@ -333,7 +333,7 @@ class _FilterButton extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
         decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF2B7AFE) : const Color(0xFF1E293B),
+          color: isSelected ? const Color(0xFF2B7AFE) : const Color(0xFF182B45),
           borderRadius: BorderRadius.circular(24),
         ),
         child: Text(
@@ -368,7 +368,7 @@ class _OrderCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: const Color(0xFF1E293B),
+        color: const Color(0xFF182B45),
         borderRadius: BorderRadius.circular(16),
       ),
       child: Column(
