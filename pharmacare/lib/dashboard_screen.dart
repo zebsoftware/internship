@@ -321,8 +321,7 @@ class _DashboardContentState extends State<DashboardContent> {
                       ),
                     ),
                     ),
-                    ),
-// Notification badge for low stock and expiring items
+                    // Notification badge for low stock and expiring items
                     StreamBuilder<int>(
                       stream: getLowStockCount(),
                       builder: (context, lowStockSnapshot) {
