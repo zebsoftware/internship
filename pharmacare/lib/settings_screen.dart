@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'pharmacy_settings.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -9,6 +11,8 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   final name = TextEditingController();
+  final personalName = TextEditingController();
+  final personalPhone = TextEditingController();
   final phone = TextEditingController();
   final address = TextEditingController();
   final tax = TextEditingController();
@@ -21,16 +25,30 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void initState() {
     super.initState();
     final s = PharmacySettingsService.instance.current.value;
-    name.text = s.name; phone.text = s.phone; address.text = s.address;
+    name.text = s.name;
+    _loadProfile(); phone.text = s.phone; address.text = s.address;
     tax.text = s.taxPercent.toString();
     threshold.text = s.lowStockThreshold.toString();
     expiry.text = s.expiryWarningDays.toString();
     currency = s.currency; alerts = s.alertsEnabled;
   }
 
+  Future<void> _loadProfile() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    try {
+      final doc = await FirebaseFirestore.instance.collection('users').doc(user.uid).get();
+      if (!mounted) return;
+      personalName.text = doc.data()?['fullName'] as String? ?? user.displayName ?? '';
+      personalPhone.text = doc.data()?['phoneNumber'] as String? ?? '';
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Could not load profile: $e')));
+    }
+  }
+
   @override
   void dispose() {
-    for (final c in [name, phone, address, tax, threshold, expiry]) { c.dispose(); }
+    for (final c in [name, phone, address, tax, threshold, expiry, personalName, personalPhone]) { c.dispose(); }
     super.dispose();
   }
 
@@ -44,12 +62,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
     setState(() => saving = true);
     try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) throw StateError('Sign in required');
       await PharmacySettingsService.instance.save(PharmacySettings(
         name: name.text.trim(), phone: phone.text.trim(), address: address.text.trim(),
         currency: currency, taxPercent: taxValue,
         lowStockThreshold: thresholdValue, expiryWarningDays: expiryValue,
         alertsEnabled: alerts,
       ));
+      await FirebaseFirestore.instance.collection('users').doc(user.uid).update({
+        'fullName': personalName.text.trim(),
+        'phoneNumber': personalPhone.text.trim(),
+      });
+      await user.updateDisplayName(personalName.text.trim());
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Settings saved')));
     } catch (e) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
@@ -69,6 +94,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('Pharmacy Settings')),
     body: ListView(padding: const EdgeInsets.all(20), children: [
+      const Text('Personal Information', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+      const SizedBox(height: 12),
+      field('Your full name', personalName),
+      field('Your phone', personalPhone),
+      const SizedBox(height: 12),
+      const Text('Pharmacy & App Settings', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+      const SizedBox(height: 12),
       field('Pharmacy name', name),
       field('Contact phone', phone),
       field('Address', address),
