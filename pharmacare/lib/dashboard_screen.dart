@@ -63,7 +63,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return GestureDetector(
       onTap: () => setState(() => _currentIndex = index),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
         decoration: BoxDecoration(
           color: isSelected ? const Color(0xFF2B7AFE) : Colors.transparent,
           borderRadius: BorderRadius.circular(12),
@@ -80,7 +80,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             Text(
               label,
               style: TextStyle(
-                fontSize: 10,
+                fontSize: 11,
                 color: isSelected ? Colors.white : const Color(0xFF64748B),
                 fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
               ),
@@ -255,7 +255,7 @@ class _DashboardContentState extends State<DashboardContent> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'Dr. $fullName',
+                      fullName,
                       style: const TextStyle(
                         fontSize: 24,
                         fontWeight: FontWeight.bold,
