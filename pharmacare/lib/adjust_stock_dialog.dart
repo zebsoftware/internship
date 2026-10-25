@@ -1,3 +1,4 @@
+import 'pharmacy_data.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'medicine_model.dart';
@@ -29,8 +30,8 @@ class _AdjustStockDialogState extends State<AdjustStockDialog> {
     setState(() => busy = true);
     try {
       final db = FirebaseFirestore.instance;
-      final medicineRef = db.collection('medicines').doc(widget.medicine.id);
-      final adjustmentRef = db.collection('stockAdjustments').doc();
+      final medicineRef = PharmacyData.collection('medicines').doc(widget.medicine.id);
+      final adjustmentRef = PharmacyData.collection('stockAdjustments').doc();
       await db.runTransaction((transaction) async {
         final medicine = await transaction.get(medicineRef);
         if (!medicine.exists) throw StateError('Medicine no longer exists');
