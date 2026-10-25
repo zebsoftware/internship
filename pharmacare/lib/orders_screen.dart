@@ -117,6 +117,39 @@ class _OrdersScreenState extends State<OrdersScreen> {
     }
   }
 
+  Future<void> _removeOrder(Order order) async {
+    final approved = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Remove order?'),
+        content: const Text('The order will be archived and hidden from the order list. Inventory is restored for an active order.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Keep')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Remove')),
+        ],
+      ),
+    );
+    if (approved != true || order.id == null) return;
+    if (order.status != 'cancelled') {
+      await _updateOrderStatus(order.id!, 'cancelled');
+    }
+    try {
+      final ref = PharmacyData.collection('orders').doc(order.id);
+      await FirebaseFirestore.instance.runTransaction((tx) async {
+        final document = await tx.get(ref);
+        if (!document.exists) return;
+        final data = document.data()!;
+        if (data['status'] != 'cancelled') {
+          throw StateError('Order must be cancelled before archiving');
+        }
+        tx.update(ref, {'archived': true, 'updatedAt': FieldValue.serverTimestamp()});
+      });
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not remove order: $e')));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -249,6 +282,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
                   }
 
                   final orders = snapshot.data!.docs
+                      .where((doc) => doc.data() is Map && (doc.data() as Map)['archived'] != true)
                       .map((doc) => Order.fromFirestore(doc))
                       .toList();
 
@@ -262,6 +296,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
                         child: _OrderCard(
                           order: order,
                           onViewDetails: () => _showOrderDetails(order),
+                          onRemove: () => _removeOrder(order),
                           onStatusUpdate: (newStatus) =>
                               _updateOrderStatus(order.id!, newStatus),
                         ),
@@ -316,12 +351,14 @@ class _FilterButton extends StatelessWidget {
 class _OrderCard extends StatelessWidget {
   final Order order;
   final VoidCallback onViewDetails;
+  final VoidCallback onRemove;
   final Function(String) onStatusUpdate;
 
   const _OrderCard({
     Key? key,
     required this.order,
     required this.onViewDetails,
+    required this.onRemove,
     required this.onStatusUpdate,
   }) : super(key: key);
 
@@ -433,6 +470,11 @@ class _OrderCard extends StatelessWidget {
                       ],
                       onSelected: onStatusUpdate,
                     ),
+                  IconButton(
+                    tooltip: 'Remove order',
+                    icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                    onPressed: onRemove,
+                  ),
                   const SizedBox(width: 8),
                   TextButton(
                     onPressed: onViewDetails,
