@@ -70,9 +70,9 @@ class _AddOrderDialogState extends State<AddOrderDialog> {
   }
 
   void _addItem() {
-    if (_selectedMedicine == null || _quantityController.text.isEmpty) return;
+    if (_selectedMedicine == null) return;
 
-    final quantity = int.tryParse(_quantityController.text) ?? 0;
+    final quantity = int.tryParse(_quantityController.text.trim().isEmpty ? '1' : _quantityController.text.trim()) ?? 0;
     if (quantity <= 0 || quantity > _selectedMedicine!.quantity) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -127,7 +127,6 @@ class _AddOrderDialogState extends State<AddOrderDialog> {
     // Clear selection
     _selectedMedicine = null;
     _quantityController.clear();
-    _selectedMedicine = null;
   }
 
   void _changeItemQuantity(int index, int quantity) {
@@ -352,26 +351,36 @@ class _AddOrderDialogState extends State<AddOrderDialog> {
                 ),
                 child: Column(
                   children: [
-                    DropdownButtonFormField<String>(
-                      key: ValueKey(_selectedMedicine?.id ?? 'empty'),
-                      initialValue: _availableMedicines.any((m) => m.id == _selectedMedicine?.id)
-                          ? _selectedMedicine?.id : null,
-                      isExpanded: true,
-                      decoration: const InputDecoration(
-                        labelText: 'Select medicine',
-                        prefixIcon: Icon(Icons.medication_outlined),
+                    OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size.fromHeight(55),
+                        alignment: Alignment.centerLeft,
+                        foregroundColor: Colors.white,
+                        side: const BorderSide(color: Color(0xFF52729A)),
                       ),
-                      hint: const Text('Choose medicine from inventory'),
-                      items: _availableMedicines.map((medicine) => DropdownMenuItem<String>(
-                        value: medicine.id,
-                        child: Text('${medicine.name} (${medicine.quantity} available)',
-                          overflow: TextOverflow.ellipsis),
-                      )).toList(),
-                      onChanged: (id) => setState(() {
-                        final matches = _availableMedicines.where((m) => m.id == id);
-                        _selectedMedicine = matches.isEmpty ? null : matches.first;
-                      }),
+                      onPressed: () async {
+                        final selected = await showSearch<Medicine?>(
+                          context: context,
+                          delegate: _MedicineSearchDelegate(_availableMedicines),
+                        );
+                        if (selected != null && mounted) {
+                          setState(() => _selectedMedicine = selected);
+                        }
+                      },
+                      icon: const Icon(Icons.search),
+                      label: Text(
+                        _selectedMedicine == null
+                          ? 'Search and select medicine'
+                          : '${_selectedMedicine!.name} (${_selectedMedicine!.quantity} left)',
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
+                    if (_availableMedicines.isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.only(top: 8),
+                        child: Text('No medicines in your inventory. Add medicines in Inventory first.',
+                          style: TextStyle(color: Colors.amber)),
+                      ),
                     const SizedBox(height: 12),
                     Row(children: [
                       Expanded(child: TextFormField(
@@ -686,5 +695,35 @@ class _SummaryRow extends StatelessWidget {
         ),
       ],
     );
+  }
+}
+class _MedicineSearchDelegate extends SearchDelegate<Medicine?> {
+  final List<Medicine> medicines;
+  _MedicineSearchDelegate(this.medicines);
+  @override
+  String get searchFieldLabel => 'Search medicine name or batch';
+  @override
+  List<Widget> buildActions(BuildContext context) => [
+    IconButton(icon: const Icon(Icons.clear), onPressed: () { query = ''; }),
+  ];
+  @override
+  Widget buildLeading(BuildContext context) => IconButton(
+    icon: const Icon(Icons.arrow_back), onPressed: () => close(context, null));
+  @override
+  Widget buildResults(BuildContext context) => buildSuggestions(context);
+  @override
+  Widget buildSuggestions(BuildContext context) {
+    final q = query.trim().toLowerCase();
+    final results = medicines.where((m) => m.name.toLowerCase().contains(q)
+        || m.batchNo.toLowerCase().contains(q)).toList();
+    if (results.isEmpty) return const Center(child: Text('No matching medicines'));
+    return ListView.builder(itemCount: results.length, itemBuilder: (context, i) {
+      final medicine = results[i];
+      return ListTile(
+        title: Text(medicine.name),
+        subtitle: Text('${medicine.quantity} available · Batch ${medicine.batchNo}'),
+        onTap: () => close(context, medicine),
+      );
+    });
   }
 }
