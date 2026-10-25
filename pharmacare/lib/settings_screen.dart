@@ -1,3 +1,4 @@
+import 'pharma_theme.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -92,7 +93,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Pharmacy Settings')),
+    appBar: AppBar(title: const Text('Settings')),
     body: ListView(padding: const EdgeInsets.all(20), children: [
       const Text('Personal Information', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
       const SizedBox(height: 12),
