@@ -1,3 +1,4 @@
+import 'pharmacy_data.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
@@ -81,7 +82,7 @@ class _AddMedicineDialogState extends State<AddMedicineDialog> {
               .update(medicine.toMap());
         } else {
           // Add new
-          await _firestore.collection('medicines').add(medicine.toMap());
+          await PharmacyData.collection('medicines').add(medicine.toMap());
         }
 
         widget.onSaved();
