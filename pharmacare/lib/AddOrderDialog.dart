@@ -126,6 +126,7 @@ class _AddOrderDialogState extends State<AddOrderDialog> {
     // Clear selection
     _selectedMedicine = null;
     _quantityController.clear();
+    _selectedMedicine = null;
   }
 
   void _changeItemQuantity(int index, int quantity) {
@@ -302,7 +303,7 @@ class _AddOrderDialogState extends State<AddOrderDialog> {
 
               // Customer Name
               const Text(
-                'Full Name',
+                'Customer Name',
                 style: TextStyle(
                   color: Color(0xFF94A3B8),
                   fontSize: 14,
@@ -331,79 +332,6 @@ class _AddOrderDialogState extends State<AddOrderDialog> {
               ),
               const SizedBox(height: 16),
 
-              Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Phone Number',
-                          style: TextStyle(
-                            color: Color(0xFF94A3B8),
-                            fontSize: 14,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        TextFormField(
-                          controller: _customerPhoneController,
-                          style: const TextStyle(color: Colors.white),
-                          keyboardType: TextInputType.phone,
-                          decoration: InputDecoration(
-                            hintText: 'Enter phone',
-                            hintStyle: const TextStyle(color: Color(0xFF64748B)),
-                            filled: true,
-                            fillColor: const Color(0xFF1E293B),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide.none,
-                            ),
-                          ),
-                          validator: (value) {
-                            if (value == null || value.isEmpty) {
-                              return 'Required';
-                            }
-                            return null;
-                          },
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Email (Optional)',
-                          style: TextStyle(
-                            color: Color(0xFF94A3B8),
-                            fontSize: 14,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        TextFormField(
-                          controller: _customerEmailController,
-                          style: const TextStyle(color: Colors.white),
-                          keyboardType: TextInputType.emailAddress,
-                          decoration: InputDecoration(
-                            hintText: 'Enter email',
-                            hintStyle: const TextStyle(color: Color(0xFF64748B)),
-                            filled: true,
-                            fillColor: const Color(0xFF1E293B),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide.none,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 24),
-
               // Add Medicines Section
               const Text(
                 'Add Medicines',
@@ -423,86 +351,45 @@ class _AddOrderDialogState extends State<AddOrderDialog> {
                 ),
                 child: Column(
                   children: [
-                    // Medicine Selection
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 16),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF0F172A),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: DropdownButtonHideUnderline(
-                              child: DropdownButton<Medicine?>(
-                                value: _selectedMedicine,
-                                hint: const Text(
-                                  'Select Medicine',
-                                  style: TextStyle(color: Color(0xFF64748B)),
-                                ),
-                                isExpanded: true,
-                                dropdownColor: const Color(0xFF1E293B),
-                                style: const TextStyle(color: Colors.white),
-                                items: [
-                                  const DropdownMenuItem(
-                                    value: null,
-                                    child: Text('Select Medicine'),
-                                  ),
-                                  ..._availableMedicines.map((medicine) {
-                                    return DropdownMenuItem(
-                                      value: medicine,
-                                      child: Text(
-                                        '${medicine.name} (${medicine.quantity} left)',
-                                        style: TextStyle(
-                                          color: medicine.isLowStock
-                                              ? const Color(0xFFF59E0B)
-                                              : medicine.isOutOfStock
-                                                  ? const Color(0xFFEF4444)
-                                                  : Colors.white,
-                                        ),
-                                      ),
-                                    );
-                                  }),
-                                ],
-                                onChanged: (Medicine? value) {
-                                  setState(() => _selectedMedicine = value);
-                                },
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        SizedBox(
-                          width: 100,
-                          child: TextFormField(
-                            controller: _quantityController,
-                            style: const TextStyle(color: Colors.white),
-                            keyboardType: TextInputType.number,
-                            decoration: InputDecoration(
-                              hintText: 'Qty',
-                              hintStyle: const TextStyle(color: Color(0xFF64748B)),
-                              filled: true,
-                              fillColor: const Color(0xFF0F172A),
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                borderSide: BorderSide.none,
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        ElevatedButton(
-                          onPressed: _addItem,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF2B7AFE),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                          ),
-                          child: const Icon(Icons.add, size: 20),
-                        ),
-                      ],
+                    DropdownButtonFormField<String>(
+                      key: ValueKey(_selectedMedicine?.id ?? 'empty'),
+                      initialValue: _availableMedicines.any((m) => m.id == _selectedMedicine?.id)
+                          ? _selectedMedicine?.id : null,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        labelText: 'Select medicine',
+                        prefixIcon: Icon(Icons.medication_outlined),
+                      ),
+                      hint: const Text('Choose medicine from inventory'),
+                      items: _availableMedicines.map((medicine) => DropdownMenuItem<String>(
+                        value: medicine.id,
+                        child: Text('${medicine.name} (${medicine.quantity} available)',
+                          overflow: TextOverflow.ellipsis),
+                      )).toList(),
+                      onChanged: (id) => setState(() {
+                        final matches = _availableMedicines.where((m) => m.id == id);
+                        _selectedMedicine = matches.isEmpty ? null : matches.first;
+                      }),
                     ),
+                    const SizedBox(height: 12),
+                    Row(children: [
+                      Expanded(child: TextFormField(
+                        controller: _quantityController,
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(labelText: 'Quantity', hintText: '1'),
+                      )),
+                      const SizedBox(width: 12),
+                      Expanded(child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF2B7AFE),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 18),
+                        ),
+                        onPressed: _selectedMedicine == null ? null : _addItem,
+                        icon: const Icon(Icons.add_shopping_cart),
+                        label: const Text('Add Item'),
+                      )),
+                    ]),
                     const SizedBox(height: 16),
 
                     // Selected Items List
