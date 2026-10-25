@@ -274,7 +274,41 @@ class _DashboardContentState extends State<DashboardContent> {
                 ),
                 Stack(
                   children: [
-                    Container(
+                    InkWell(
+                      onTap: () => showDialog<void>(
+                        context: context,
+                        builder: (_) => AlertDialog(
+                          title: const Text('Inventory notifications'),
+                          content: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                            stream: PharmacyData.collection('medicines').snapshots(),
+                            builder: (context, snapshot) {
+                              if (snapshot.hasError) return Text('Unable to load alerts: ${snapshot.error}');
+                              if (!snapshot.hasData) return const CircularProgressIndicator();
+                              final settings = PharmacySettingsService.instance.current.value;
+                              final today = DateTime.now();
+                              final alerts = snapshot.data!.docs.expand((d) {
+                                final data = d.data();
+                                final qty = (data['quantity'] as num?)?.toInt() ?? 0;
+                                final expires = data['expiryDate'];
+                                final date = expires is Timestamp ? expires.toDate() : null;
+                                final issues = <String>[];
+                                if (qty <= settings.lowStockThreshold) issues.add('Low stock ($qty)');
+                                if (date != null && date.isBefore(today.add(Duration(days: settings.expiryWarningDays)))) issues.add('Expiring soon');
+                                return issues.map((issue) => '${data['name'] ?? 'Medicine'}: $issue');
+                              }).toList();
+                              if (!settings.alertsEnabled) return const Text('Alerts are disabled in Settings.');
+                              if (alerts.isEmpty) return const Text('No current inventory alerts.');
+                              return SizedBox(width: 320, height: 280,
+                                child: ListView(children: alerts.map((a) => ListTile(
+                                  leading: const Icon(Icons.warning_amber_outlined),
+                                  title: Text(a),
+                                )).toList()));
+                            },
+                          ),
+                          actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close'))],
+                        ),
+                      ),
+                      child: Container(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
                         color: const Color(0xFF1E293B),
@@ -286,7 +320,9 @@ class _DashboardContentState extends State<DashboardContent> {
                         size: 24,
                       ),
                     ),
-                    // Notification badge for low stock and expiring items
+                    ),
+                    ),
+// Notification badge for low stock and expiring items
                     StreamBuilder<int>(
                       stream: getLowStockCount(),
                       builder: (context, lowStockSnapshot) {
