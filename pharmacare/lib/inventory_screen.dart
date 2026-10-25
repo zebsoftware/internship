@@ -1,3 +1,4 @@
+import 'pharmacy_data.dart';
 import 'adjust_stock_dialog.dart';
 import 'pharmacy_settings.dart';
 import 'package:flutter/material.dart';
@@ -32,7 +33,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
   }
 
   Stream<QuerySnapshot> _getMedicinesStream() {
-    Query query = _firestore.collection('medicines');
+    Query query = PharmacyData.collection('medicines');
 
     // Apply search filter
     if (_searchQuery.isNotEmpty) {
@@ -94,7 +95,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
           ElevatedButton(
             onPressed: () async {
               Navigator.pop(context);
-              await _firestore.collection('medicines').doc(medicineId).delete();
+              await PharmacyData.collection('medicines').doc(medicineId).delete();
               setState(() {});
             },
             style: ElevatedButton.styleFrom(
