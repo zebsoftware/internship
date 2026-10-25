@@ -1,5 +1,6 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'pharmacy_settings.dart';
 
 class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -18,6 +19,7 @@ class AuthService {
     required String phoneNumber,
     required String licenseNumber,
     required String password,
+    String currency = 'PKR',
   }) async {
     try {
       print('🔄 Step 1: Creating user in Firebase Auth...');
@@ -46,6 +48,9 @@ class AuthService {
         'pharmacyName': 'PharmaCare Pharmacy',
       });
 
+      await _firestore.collection('users').doc(userId).collection('settings').doc('pharmacy').set(
+        PharmacySettings(currency: currency).toMap());
+      await userCredential.user?.updateDisplayName(fullName.trim());
       print('✅ Step 2 Complete: User data saved to Firestore');
       print('🎉 User registration completed successfully!');
 
