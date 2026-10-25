@@ -255,12 +255,9 @@ class _AddOrderDialogState extends State<AddOrderDialog> {
 
   @override
   Widget build(BuildContext context) {
-    return Dialog(
-      backgroundColor: const Color(0xFF0A1628),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: SingleChildScrollView(
+    return Dialog.fullscreen(
+      backgroundColor: const Color(0xFF071A31),
+      child: SafeArea(child: SingleChildScrollView(
         padding: const EdgeInsets.all(24),
         child: Form(
           key: _formKey,
@@ -272,7 +269,7 @@ class _AddOrderDialogState extends State<AddOrderDialog> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   const Text(
-                    '➕ Create New Order',
+                    'New Order',
                     style: TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
@@ -657,7 +654,7 @@ class _AddOrderDialogState extends State<AddOrderDialog> {
             ],
           ),
         ),
-      ),
+      )),
     );
   }
 }
