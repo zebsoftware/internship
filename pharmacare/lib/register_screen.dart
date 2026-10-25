@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'login_screen.dart';
 import 'dashboard_screen.dart';
 import 'auth_service.dart';
+import 'pharmacy_settings.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({Key? key}) : super(key: key);
@@ -25,6 +26,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   bool _obscurePassword = true;
   bool _obscureConfirmPassword = true;
   String _errorMessage = '';
+  String _currency = 'PKR';
 
   @override
   void dispose() {
@@ -59,6 +61,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         phoneNumber: _phoneController.text,
         licenseNumber: _licenseController.text,
         password: _passwordController.text,
+        currency: _currency,
       );
       
       // Navigate to dashboard on success
@@ -325,6 +328,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         ),
                         const SizedBox(height: 24),
                         
+                        const Text('Pharmacy Currency', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+                        const SizedBox(height: 10),
+                        DropdownButtonFormField<String>(
+                          value: _currency,
+                          decoration: const InputDecoration(labelText: 'Base currency'),
+                          items: supportedCurrencies.map((c) => DropdownMenuItem(value: c, child: Text(c))).toList(),
+                          onChanged: (c) => setState(() => _currency = c ?? _currency),
+                        ),
+                        const SizedBox(height: 24),
                         // Password Field
                         const Text(
                           'Password',
