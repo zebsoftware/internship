@@ -1,3 +1,4 @@
+import 'pharmacy_data.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart' as firestore; // Add prefix
@@ -44,7 +45,7 @@ class _AddOrderDialogState extends State<AddOrderDialog> {
 
   void _loadMedicines() {
     try {
-      _inventorySubscription = _firestore.collection('medicines').snapshots().listen((snapshot) {
+      _inventorySubscription = PharmacyData.collection('medicines').snapshots().listen((snapshot) {
         if (!mounted) return;
         setState(() {
           _availableMedicines = snapshot.docs.map((doc) => Medicine.fromFirestore(doc))
@@ -196,7 +197,7 @@ class _AddOrderDialogState extends State<AddOrderDialog> {
         paymentMethod: _paymentMethod,
         notes: _notesController.text.trim(),
       );
-      final orderRef = _firestore.collection('orders').doc();
+      final orderRef = PharmacyData.collection('orders').doc();
 
       await _firestore.runTransaction((transaction) async {
         final quantities = <String, int>{};
@@ -208,7 +209,7 @@ class _AddOrderDialogState extends State<AddOrderDialog> {
             throw StateError('Invalid quantity or medicine selection.');
           }
           if (refs.containsKey(item.medicineId)) continue;
-          final ref = _firestore.collection('medicines').doc(item.medicineId);
+          final ref = PharmacyData.collection('medicines').doc(item.medicineId);
           final snapshot = await transaction.get(ref);
           if (!snapshot.exists) {
             throw StateError('${item.medicineName} is no longer available.');
