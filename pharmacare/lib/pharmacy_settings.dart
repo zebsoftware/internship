@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:async';
+import 'pharmacy_data.dart';
 import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
 
@@ -90,9 +91,8 @@ class PharmacySettingsService {
       throw StateError('Currency changes require a verified price and order migration. Existing amounts were not changed.');
     }
     if (!existing.exists && settings.currency != 'PKR') {
-      final db = FirebaseFirestore.instance;
-      final inventory = await db.collection('medicines').limit(1).get();
-      final orders = await db.collection('orders').limit(1).get();
+      final inventory = await PharmacyData.collection('medicines').limit(1).get();
+      final orders = await PharmacyData.collection('orders').limit(1).get();
       if (inventory.docs.isNotEmpty || orders.docs.isNotEmpty) {
         throw StateError('Existing financial records must be migrated before selecting a different currency.');
       }
