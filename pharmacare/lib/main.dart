@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'firebase_options.dart';
 import 'login_screen.dart';
+import 'dashboard_screen.dart';
 import 'pharmacy_settings.dart';
 
 void main() async {
@@ -57,7 +58,15 @@ class PharmaCareApp extends StatelessWidget {
           hintStyle: const TextStyle(color: Color(0xFF64748B)),
         ),
       ),
-      home: const LoginScreen(),
+      home: StreamBuilder<User?>(
+        stream: FirebaseAuth.instance.authStateChanges(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Scaffold(body: Center(child: CircularProgressIndicator()));
+          }
+          return snapshot.hasData ? const DashboardScreen() : const LoginScreen();
+        },
+      ),
     );
   }
 }
