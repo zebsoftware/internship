@@ -40,6 +40,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
     showDialog(
       context: context,
       barrierDismissible: false,
+      useSafeArea: false,
       builder: (context) => AddOrderDialog(
         onSaved: () => setState(() {}),
       ),
