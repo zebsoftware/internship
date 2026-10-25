@@ -35,12 +35,8 @@ class _InventoryScreenState extends State<InventoryScreen> {
   Stream<QuerySnapshot> _getMedicinesStream() {
     Query query = PharmacyData.collection('medicines');
 
-    // Apply search filter
-    if (_searchQuery.isNotEmpty) {
-      query = query.where('name', isGreaterThanOrEqualTo: _searchQuery);
-    }
-
-    // Apply type filter
+    // Search is applied locally to the live results, avoiding Firestore
+    // composite-index and case-sensitive prefix-query limitations.
     if (_selectedCategory != 'All Items') {
       query = query.where('type', isEqualTo: _selectedCategory);
     }
@@ -304,8 +300,13 @@ class _InventoryScreenState extends State<InventoryScreen> {
                   );
                 }
 
+                final search = _searchQuery.toLowerCase().trim();
                 final medicines = snapshot.data!.docs
                     .map((doc) => Medicine.fromFirestore(doc))
+                    .where((m) => search.isEmpty ||
+                      m.name.toLowerCase().contains(search) ||
+                      m.batchNo.toLowerCase().contains(search) ||
+                      m.type.toLowerCase().contains(search))
                     .toList();
 
                 return ListView.builder(
