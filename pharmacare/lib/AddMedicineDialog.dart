@@ -76,8 +76,7 @@ class _AddMedicineDialogState extends State<AddMedicineDialog> {
 
         if (widget.medicine != null) {
           // Update existing
-          await _firestore
-              .collection('medicines')
+          await PharmacyData.collection('medicines')
               .doc(widget.medicine!.id)
               .update(medicine.toMap());
         } else {
