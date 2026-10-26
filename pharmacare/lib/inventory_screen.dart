@@ -36,9 +36,6 @@ class _InventoryScreenState extends State<InventoryScreen> {
     return PharmacyData.collection('medicines').snapshots();
   }
 
-    return query.orderBy('createdAt', descending: true).snapshots();
-  }
-
   void _showAddMedicineDialog({Medicine? medicine}) {
     showDialog(
       context: context,
