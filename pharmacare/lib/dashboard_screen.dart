@@ -1,3 +1,5 @@
+import 'pharmacy_data.dart';
+import 'pharmacy_settings.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -5,6 +7,7 @@ import 'orders_screen.dart';
 import 'inventory_screen.dart';
 import 'analytics_screen.dart';
 import 'profile_screen.dart';
+import 'pharma_home.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({Key? key}) : super(key: key);
@@ -18,7 +21,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   final User? currentUser = FirebaseAuth.instance.currentUser;
 
   final List<Widget> _screens = [
-    const DashboardContent(),
+    const PharmaHome(),
     const OrdersScreen(),
     const InventoryScreen(),
     const AnalyticsScreen(),
@@ -61,7 +64,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return GestureDetector(
       onTap: () => setState(() => _currentIndex = index),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
         decoration: BoxDecoration(
           color: isSelected ? const Color(0xFF2B7AFE) : Colors.transparent,
           borderRadius: BorderRadius.circular(12),
@@ -78,7 +81,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             Text(
               label,
               style: TextStyle(
-                fontSize: 10,
+                fontSize: 11,
                 color: isSelected ? Colors.white : const Color(0xFF64748B),
                 fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
               ),
@@ -253,7 +256,7 @@ class _DashboardContentState extends State<DashboardContent> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'Dr. $fullName',
+                      fullName,
                       style: const TextStyle(
                         fontSize: 24,
                         fontWeight: FontWeight.bold,
@@ -270,58 +273,50 @@ class _DashboardContentState extends State<DashboardContent> {
                     //   ),
                   ],
                 ),
-                Stack(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF1E293B),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: const Icon(
-                        Icons.notifications_rounded,
-                        color: Colors.white,
-                        size: 24,
-                      ),
-                    ),
-                    // Notification badge for low stock and expiring items
-                    StreamBuilder<int>(
-                      stream: getLowStockCount(),
-                      builder: (context, lowStockSnapshot) {
-                        return StreamBuilder<int>(
-                          stream: getExpiringCount(),
-                          builder: (context, expiringSnapshot) {
-                            int totalAlerts = 0;
-                            if (lowStockSnapshot.hasData) totalAlerts += lowStockSnapshot.data!;
-                            if (expiringSnapshot.hasData) totalAlerts += expiringSnapshot.data!;
-                            
-                            if (totalAlerts > 0) {
-                              return Positioned(
-                                top: 8,
-                                right: 8,
-                                child: Container(
-                                  padding: const EdgeInsets.all(4),
-                                  decoration: const BoxDecoration(
-                                    color: Color(0xFFEF4444),
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: Text(
-                                    totalAlerts > 9 ? '9+' : totalAlerts.toString(),
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 8,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                ),
-                              );
+                IconButton(
+                  tooltip: 'Inventory notifications',
+                  icon: const Icon(Icons.notifications_rounded, color: Colors.white),
+                  onPressed: () => showDialog<void>(
+                    context: context,
+                    builder: (dialogContext) => AlertDialog(
+                      title: const Text('Inventory notifications'),
+                      content: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                        stream: PharmacyData.collection('medicines').snapshots(),
+                        builder: (context, snapshot) {
+                          if (snapshot.hasError) return Text('Could not load notifications: ${snapshot.error}');
+                          if (!snapshot.hasData) return const CircularProgressIndicator();
+                          final config = PharmacySettingsService.instance.current.value;
+                          if (!config.alertsEnabled) return const Text('Notifications are disabled in Settings.');
+                          final now = DateTime.now();
+                          final alerts = <String>[];
+                          for (final doc in snapshot.data!.docs) {
+                            final medicine = doc.data();
+                            final name = medicine['name'] as String? ?? 'Medicine';
+                            final quantity = (medicine['quantity'] as num?)?.toInt() ?? 0;
+                            if (quantity <= config.lowStockThreshold) {
+                              alerts.add('$name: low stock ($quantity left)');
                             }
-                            return const SizedBox.shrink();
-                          },
-                        );
-                      },
+                            final expires = medicine['expiryDate'];
+                            if (expires is Timestamp &&
+                                expires.toDate().isBefore(now.add(Duration(days: config.expiryWarningDays)))) {
+                              alerts.add('$name: approaching expiry');
+                            }
+                          }
+                          if (alerts.isEmpty) return const Text('No current inventory alerts.');
+                          return SizedBox(width: 320, height: 260,
+                            child: ListView(children: alerts.map((a) => ListTile(
+                              leading: const Icon(Icons.warning_amber_outlined),
+                              title: Text(a),
+                            )).toList()),
+                          );
+                        },
+                      ),
+                      actions: [
+                        TextButton(onPressed: () => Navigator.pop(dialogContext),
+                          child: const Text('Close')),
+                      ],
                     ),
-                  ],
+                  ),
                 ),
               ],
             ),
@@ -376,8 +371,8 @@ class _DashboardContentState extends State<DashboardContent> {
                       builder: (context, snapshot) {
                         double revenue = snapshot.data ?? 0;
                         String revenueText = revenue >= 1000 
-                            ? '\$${(revenue/1000).toStringAsFixed(1)}K'
-                            : '\$${revenue.toStringAsFixed(0)}';
+                            ?  '${formatMoney(revenue/1000, PharmacySettingsService.instance.current.value.currency)}K'
+                            : formatMoney(revenue, PharmacySettingsService.instance.current.value.currency);
                         
                         return _StatCard(
                           icon: Icons.attach_money_rounded,

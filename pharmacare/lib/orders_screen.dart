@@ -1,3 +1,5 @@
+import 'pharmacy_data.dart';
+import 'pharmacy_settings.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart' hide Order; // HIDE Order
 import 'order_model.dart';
@@ -25,7 +27,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
   ];
 
   Stream<QuerySnapshot> _getOrdersStream() {
-    Query query = _firestore.collection('orders');
+    Query query = PharmacyData.collection('orders');
 
     if (_selectedFilter != 'All') {
       query = query.where('status', isEqualTo: _selectedFilter.toLowerCase());
@@ -38,6 +40,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
     showDialog(
       context: context,
       barrierDismissible: false,
+      useSafeArea: false,
       builder: (context) => AddOrderDialog(
         onSaved: () => setState(() {}),
       ),
@@ -52,16 +55,106 @@ class _OrdersScreenState extends State<OrdersScreen> {
   }
 
   Future<void> _updateOrderStatus(String orderId, String newStatus) async {
-    await _firestore.collection('orders').doc(orderId).update({
-      'status': newStatus.toLowerCase(),
-      'updatedAt': Timestamp.now(),
-    });
+    final target = newStatus.toLowerCase();
+    try {
+      final orderRef = PharmacyData.collection('orders').doc(orderId);
+      await _firestore.runTransaction((transaction) async {
+        final orderDoc = await transaction.get(orderRef);
+        if (!orderDoc.exists) throw StateError('Order no longer exists');
+        final data = orderDoc.data()!;
+        final previous = (data['status'] as String? ?? 'pending').toLowerCase();
+        if (previous == target) return;
+        if (previous == 'cancelled') {
+          throw StateError('Cancelled orders cannot be reopened');
+        }
+        if (target == 'cancelled') {
+          final requested = <String, int>{};
+          for (final raw in (data['items'] as List<dynamic>? ?? [])) {
+            final item = Map<String, dynamic>.from(raw as Map);
+            final id = item['medicineId'] as String?;
+            final qty = (item['quantity'] as num?)?.toInt() ?? 0;
+            if (id == null || id.isEmpty || qty <= 0) {
+              throw StateError('Order has invalid item data');
+            }
+            requested.update(id, (n) => n + qty, ifAbsent: () => qty);
+          }
+          final stockRefs = <String, DocumentReference<Map<String, dynamic>>>{};
+          final stock = <String, int>{};
+          // All reads must occur before any transaction writes.
+          for (final entry in requested.entries) {
+            final ref = PharmacyData.collection('medicines').doc(entry.key);
+            final snapshot = await transaction.get(ref);
+            if (!snapshot.exists) {
+              throw StateError('Cannot restore stock: medicine is missing');
+            }
+            final oldStock = snapshot.data()?['quantity'];
+            if (oldStock is! num || oldStock < 0) {
+              throw StateError('Cannot restore stock: invalid current quantity');
+            }
+            stockRefs[entry.key] = ref;
+            stock[entry.key] = oldStock.toInt();
+          }
+          for (final entry in requested.entries) {
+            transaction.update(stockRefs[entry.key]!, {
+              'quantity': stock[entry.key]! + entry.value,
+            });
+          }
+          transaction.update(orderRef, {
+            'status': 'cancelled',
+            'stockRestored': true,
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+        } else {
+          transaction.update(orderRef, {
+            'status': target,
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+        }
+      });
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not update order: $e')));
+    }
+  }
+
+  Future<void> _removeOrder(Order order) async {
+    final approved = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Remove order?'),
+        content: const Text('The order will be archived and hidden from the order list. Inventory is restored for an active order.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Keep')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Remove')),
+        ],
+      ),
+    );
+    if (approved != true || order.id == null) return;
+    if (order.status != 'cancelled') {
+      await _updateOrderStatus(order.id!, 'cancelled');
+    }
+    try {
+      final ref = PharmacyData.collection('orders').doc(order.id);
+      await FirebaseFirestore.instance.runTransaction((tx) async {
+        final document = await tx.get(ref);
+        if (!document.exists) return;
+        final data = document.data()!;
+        if (data['status'] != 'cancelled') {
+          throw StateError('Order must be cancelled before archiving');
+        }
+        tx.update(ref, {'archived': true, 'updatedAt': FieldValue.serverTimestamp()});
+      });
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not remove order: $e')));
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFF0A1628),
+      backgroundColor: const Color(0xFF071A31),
       body: SafeArea(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -151,7 +244,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
                             width: 100,
                             height: 100,
                             decoration: BoxDecoration(
-                              color: const Color(0xFF1E293B),
+                              color: const Color(0xFF182B45),
                               shape: BoxShape.circle,
                             ),
                             child: const Icon(
@@ -190,6 +283,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
                   }
 
                   final orders = snapshot.data!.docs
+                      .where((doc) => doc.data() is Map && (doc.data() as Map)['archived'] != true)
                       .map((doc) => Order.fromFirestore(doc))
                       .toList();
 
@@ -203,6 +297,7 @@ class _OrdersScreenState extends State<OrdersScreen> {
                         child: _OrderCard(
                           order: order,
                           onViewDetails: () => _showOrderDetails(order),
+                          onRemove: () => _removeOrder(order),
                           onStatusUpdate: (newStatus) =>
                               _updateOrderStatus(order.id!, newStatus),
                         ),
@@ -238,7 +333,7 @@ class _FilterButton extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
         decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF2B7AFE) : const Color(0xFF1E293B),
+          color: isSelected ? const Color(0xFF2B7AFE) : const Color(0xFF182B45),
           borderRadius: BorderRadius.circular(24),
         ),
         child: Text(
@@ -257,12 +352,14 @@ class _FilterButton extends StatelessWidget {
 class _OrderCard extends StatelessWidget {
   final Order order;
   final VoidCallback onViewDetails;
+  final VoidCallback onRemove;
   final Function(String) onStatusUpdate;
 
   const _OrderCard({
     Key? key,
     required this.order,
     required this.onViewDetails,
+    required this.onRemove,
     required this.onStatusUpdate,
   }) : super(key: key);
 
@@ -271,7 +368,7 @@ class _OrderCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: const Color(0xFF1E293B),
+        color: const Color(0xFF182B45),
         borderRadius: BorderRadius.circular(16),
       ),
       child: Column(
@@ -341,7 +438,7 @@ class _OrderCard extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                '\$${order.totalAmount.toStringAsFixed(2)}',
+                formatMoney(order.totalAmount, PharmacySettingsService.instance.current.value.currency),
                 style: const TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
@@ -374,6 +471,11 @@ class _OrderCard extends StatelessWidget {
                       ],
                       onSelected: onStatusUpdate,
                     ),
+                  IconButton(
+                    tooltip: 'Remove order',
+                    icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                    onPressed: onRemove,
+                  ),
                   const SizedBox(width: 8),
                   TextButton(
                     onPressed: onViewDetails,
