@@ -33,8 +33,6 @@ class _InventoryScreenState extends State<InventoryScreen> {
   }
 
   Stream<QuerySnapshot> _getMedicinesStream() {
-    Query query = PharmacyData.collection('medicines');
-
     return PharmacyData.collection('medicines').snapshots();
   }
 
@@ -305,6 +303,10 @@ class _InventoryScreenState extends State<InventoryScreen> {
                       m.batchNo.toLowerCase().contains(search) ||
                       m.type.toLowerCase().contains(search)))
                     .toList();
+
+                if (medicines.isEmpty) {
+                  return const Center(child: Text('No medicines match this filter', style: TextStyle(color: Colors.white70)));
+                }
 
                 return ListView.builder(
                   padding: const EdgeInsets.symmetric(horizontal: 20),
