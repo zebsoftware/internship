@@ -35,11 +35,8 @@ class _InventoryScreenState extends State<InventoryScreen> {
   Stream<QuerySnapshot> _getMedicinesStream() {
     Query query = PharmacyData.collection('medicines');
 
-    // Search is applied locally to the live results, avoiding Firestore
-    // composite-index and case-sensitive prefix-query limitations.
-    if (_selectedCategory != 'All Items') {
-      query = query.where('type', isEqualTo: _selectedCategory);
-    }
+    return PharmacyData.collection('medicines').snapshots();
+  }
 
     return query.orderBy('createdAt', descending: true).snapshots();
   }
@@ -218,21 +215,21 @@ class _InventoryScreenState extends State<InventoryScreen> {
                 ),
                 const SizedBox(width: 12),
                 _CategoryButton(
-                  label: 'Tablets',
-                  isSelected: _selectedCategory == 'Tablets',
-                  onTap: () => setState(() => _selectedCategory = 'Tablets'),
+                  label: 'Tablet',
+                  isSelected: _selectedCategory == 'Tablet',
+                  onTap: () => setState(() => _selectedCategory = 'Tablet'),
                 ),
                 const SizedBox(width: 12),
                 _CategoryButton(
-                  label: 'Capsules',
-                  isSelected: _selectedCategory == 'Capsules',
-                  onTap: () => setState(() => _selectedCategory = 'Capsules'),
+                  label: 'Capsule',
+                  isSelected: _selectedCategory == 'Capsule',
+                  onTap: () => setState(() => _selectedCategory = 'Capsule'),
                 ),
                 const SizedBox(width: 12),
                 _CategoryButton(
-                  label: 'Syrups',
-                  isSelected: _selectedCategory == 'Syrups',
-                  onTap: () => setState(() => _selectedCategory = 'Syrups'),
+                  label: 'Syrup',
+                  isSelected: _selectedCategory == 'Syrup',
+                  onTap: () => setState(() => _selectedCategory = 'Syrup'),
                 ),
               ],
             ),
@@ -261,7 +258,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
                   );
                 }
 
-                if (snapshot.data!.docs.isEmpty) {
+                if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
                   return Center(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
@@ -303,10 +300,10 @@ class _InventoryScreenState extends State<InventoryScreen> {
                 final search = _searchQuery.toLowerCase().trim();
                 final medicines = snapshot.data!.docs
                     .map((doc) => Medicine.fromFirestore(doc))
-                    .where((m) => search.isEmpty ||
-                      m.name.toLowerCase().contains(search) ||
+                    .where((m) => (_selectedCategory == 'All Items' || m.type.trim().toLowerCase() == _selectedCategory.toLowerCase()) &&
+                      (search.isEmpty || m.name.toLowerCase().contains(search) ||
                       m.batchNo.toLowerCase().contains(search) ||
-                      m.type.toLowerCase().contains(search))
+                      m.type.toLowerCase().contains(search)))
                     .toList();
 
                 return ListView.builder(
