@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'settings_screen.dart';
+import 'login_screen.dart';
 import 'pharmacy_data.dart';
 import 'pharmacy_settings.dart';
 
@@ -72,7 +73,12 @@ class ProfileScreen extends StatelessWidget {
           FilledButton.icon(
             style: FilledButton.styleFrom(backgroundColor: const Color(0xFF8B2020),
               padding: const EdgeInsets.all(17)),
-            onPressed: () async { await FirebaseAuth.instance.signOut(); },
+            onPressed: () async {
+              await FirebaseAuth.instance.signOut();
+              if (!context.mounted) return;
+              Navigator.of(context, rootNavigator: true).pushAndRemoveUntil(
+                MaterialPageRoute(builder: (_) => const LoginScreen()), (_) => false);
+            },
             icon: const Icon(Icons.logout),
             label: const Text('Logout'),
           ),
