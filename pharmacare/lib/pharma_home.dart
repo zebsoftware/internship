@@ -33,33 +33,6 @@ class PharmaHome extends StatelessWidget {
                 TextSpan(text: 'Care', style: TextStyle(color: Color(0xFF25D8AB))),
               ]), style: TextStyle(fontSize: 23, fontWeight: FontWeight.w800)),
               const Spacer(),
-              IconButton(tooltip: 'Inventory alerts',
-                onPressed: () => showDialog<void>(context: context, builder: (_) =>
-                  AlertDialog(title: const Text('Inventory Alerts'),
-                    content: StreamBuilder<QuerySnapshot<Map<String,dynamic>>>(
-                      stream: medicines,
-                      builder: (context, snap) {
-                        if (!snap.hasData) return const Text('Loading...');
-                        final config = PharmacySettingsService.instance.current.value;
-                        if (!config.alertsEnabled) return const Text('Alerts disabled in Settings.');
-                        final now = DateTime.now();
-                        final alerts = <String>[];
-                        for (final doc in snap.data!.docs) {
-                          final m = doc.data(); final count = (m['quantity'] as num?)?.toInt() ?? 0;
-                          if (count <= config.lowStockThreshold) alerts.add('${m['name']}: $count left');
-                          final exp = m['expiryDate'];
-                          if (exp is Timestamp && exp.toDate().isBefore(now.add(Duration(days: config.expiryWarningDays)))) {
-                            alerts.add('${m['name']}: nearing expiry');
-                          }
-                        }
-                        return SizedBox(width: 300, height: 260,
-                          child: alerts.isEmpty ? const Center(child: Text('No active alerts')) :
-                            ListView(children: alerts.map((a) => ListTile(
-                              leading: const Icon(Icons.warning_amber_rounded), title: Text(a))).toList()));
-                      },
-                    ),
-                    actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close'))])),
-                icon: const Icon(Icons.notifications_outlined)),
             ]),
             const SizedBox(height: 20),
             const Text('Welcome Back', style: TextStyle(fontSize: 14, color: Color(0xFFA2B5D2))),
@@ -76,7 +49,7 @@ class PharmaHome extends StatelessWidget {
                 builder: (context, m) {
                   final orderData = o.data?.docs.where((d) => d.data()['archived'] != true).toList() ?? [];
                   final medicineData = m.data?.docs ?? [];
-                  final completed = orderData.where((d) => d.data()['status'] == 'completed');
+                  final completed = orderData.where((d) => d.data()['status'] == 'completed' && d.data()['archived'] != true);
                   final total = completed.fold<double>(0, (v,d) => v + ((d.data()['totalAmount'] as num?)?.toDouble() ?? 0));
                   final config = PharmacySettingsService.instance.current.value;
                   final low = medicineData.where((d) => ((d.data()['quantity'] as num?)?.toInt() ?? 0) <= config.lowStockThreshold).length;
@@ -105,15 +78,6 @@ class PharmaHome extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 26),
-            const Text('Quick Actions', style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 12),
-            SizedBox(height: 56, child: FilledButton.icon(
-              onPressed: () => showDialog(context: context, useSafeArea: false,
-                builder: (_) => AddOrderDialog(onSaved: () {})),
-              icon: const Icon(Icons.add_shopping_cart_outlined),
-              label: const Text('New Order'),
-            )),
-            const SizedBox(height: 24),
             const Text('Recent Orders', style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold)),
             const SizedBox(height: 10),
             StreamBuilder<QuerySnapshot<Map<String,dynamic>>>(
