@@ -34,8 +34,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   Future<Map<String, dynamic>> _fetchAnalyticsData() async {
     try {
       // Get orders from selected period
-      final ordersSnapshot = await _firestore
-          .collection('orders')
+      final ordersSnapshot = await PharmacyData.collection('orders')
           .where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(_startDate))
           .where('createdAt', isLessThanOrEqualTo: Timestamp.fromDate(_endDate))
           .get();
@@ -56,7 +55,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         final String status = order['status']?.toString() ?? 'pending';
         final double totalAmount = (order['totalAmount'] ?? 0).toDouble();
         
-        totalRevenue += totalAmount;
+        if (status == 'completed' && order['archived'] != true) totalRevenue += totalAmount;
 
         // Count by status
         if (status == 'completed') {
@@ -141,8 +140,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     final DateTime previousEndDate = _endDate.subtract(const Duration(days: 7));
 
     try {
-      final QuerySnapshot ordersSnapshot = await _firestore
-          .collection('orders')
+      final QuerySnapshot ordersSnapshot = await PharmacyData.collection('orders')
           .where('createdAt', isGreaterThanOrEqualTo: Timestamp.fromDate(previousStartDate))
           .where('createdAt', isLessThanOrEqualTo: Timestamp.fromDate(previousEndDate))
           .get();
@@ -150,7 +148,9 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
       double totalRevenue = 0.0;
       for (final doc in ordersSnapshot.docs) {
         final Map<String, dynamic> order = doc.data() as Map<String, dynamic>;
-        totalRevenue += (order['totalAmount'] ?? 0).toDouble();
+        if (order['status'] == 'completed' && order['archived'] != true) {
+          totalRevenue += (order['totalAmount'] as num? ?? 0).toDouble();
+        }
       }
 
       return {'totalRevenue': totalRevenue};
