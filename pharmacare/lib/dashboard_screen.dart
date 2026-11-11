@@ -10,7 +10,7 @@ import 'profile_screen.dart';
 import 'pharma_home.dart';
 
 class DashboardScreen extends StatefulWidget {
-  const DashboardScreen({Key? key}) : super(key: key);
+  const DashboardScreen({super.key});
 
   @override
   State<DashboardScreen> createState() => _DashboardScreenState();
@@ -18,77 +18,70 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   int _currentIndex = 0;
-  final User? currentUser = FirebaseAuth.instance.currentUser;
 
-  final List<Widget> _screens = [
-    const PharmaHome(),
-    const OrdersScreen(),
-    const InventoryScreen(),
-    const AnalyticsScreen(),
-    const ProfileScreen(),
+  final List<Widget> _screens = const [
+    PharmaHome(),
+    OrdersScreen(),
+    InventoryScreen(),
+    AnalyticsScreen(),
+    ProfileScreen(),
+  ];
+
+  static const _items = <({String label, IconData icon, IconData active})>[
+    (label: 'Home', icon: Icons.home_outlined, active: Icons.home_rounded),
+    (label: 'Orders', icon: Icons.receipt_long_outlined, active: Icons.receipt_long_rounded),
+    (label: 'Inventory', icon: Icons.inventory_2_outlined, active: Icons.inventory_2_rounded),
+    (label: 'Analytics', icon: Icons.insights_outlined, active: Icons.insights_rounded),
+    (label: 'Profile', icon: Icons.person_outline_rounded, active: Icons.person_rounded),
   ];
 
   @override
   Widget build(BuildContext context) {
+    final isDesktop = MediaQuery.sizeOf(context).width >= 760;
     return Scaffold(
-      backgroundColor: const Color(0xFF0A1628),
-      body: _screens[_currentIndex],
-      bottomNavigationBar: Container(
-        decoration: const BoxDecoration(
-          color: Color(0xFF1E293B),
-          border: Border(
-            top: BorderSide(color: Color(0xFF334155), width: 0.5),
-          ),
-        ),
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
+      body: isDesktop
+          ? Row(
               children: [
-                _buildNavItem(Icons.home_rounded, 'Home', 0),
-                _buildNavItem(Icons.shopping_cart_rounded, 'Orders', 1),
-                _buildNavItem(Icons.inventory_2_rounded, 'Inventory', 2),
-                _buildNavItem(Icons.analytics_rounded, 'Analytics', 3),
-                _buildNavItem(Icons.person_rounded, 'Profile', 4),
+                NavigationRail(
+                  backgroundColor: const Color(0xFF10233B),
+                  selectedIndex: _currentIndex,
+                  onDestinationSelected: (index) => setState(() => _currentIndex = index),
+                  extended: MediaQuery.sizeOf(context).width >= 1150,
+                  labelType: MediaQuery.sizeOf(context).width >= 1150
+                      ? NavigationRailLabelType.none
+                      : NavigationRailLabelType.selected,
+                  leading: const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 18),
+                    child: Icon(Icons.medical_services_rounded, size: 30, color: Color(0xFF17BB9C)),
+                  ),
+                  destinations: [
+                    for (final item in _items)
+                      NavigationRailDestination(
+                        icon: Icon(item.icon),
+                        selectedIcon: Icon(item.active),
+                        label: Text(item.label),
+                      ),
+                  ],
+                ),
+                const VerticalDivider(thickness: 1, width: 1),
+                Expanded(child: _screens[_currentIndex]),
+              ],
+            )
+          : _screens[_currentIndex],
+      bottomNavigationBar: isDesktop
+          ? null
+          : NavigationBar(
+              selectedIndex: _currentIndex,
+              onDestinationSelected: (index) => setState(() => _currentIndex = index),
+              destinations: [
+                for (final item in _items)
+                  NavigationDestination(
+                    icon: Icon(item.icon),
+                    selectedIcon: Icon(item.active),
+                    label: item.label,
+                  ),
               ],
             ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildNavItem(IconData icon, String label, int index) {
-    final isSelected = _currentIndex == index;
-    return GestureDetector(
-      onTap: () => setState(() => _currentIndex = index),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-        decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF2B7AFE) : Colors.transparent,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              icon,
-              color: isSelected ? Colors.white : const Color(0xFF64748B),
-              size: 24,
-            ),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 11,
-                color: isSelected ? Colors.white : const Color(0xFF64748B),
-                fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }
@@ -115,7 +108,7 @@ class _DashboardContentState extends State<DashboardContent> {
   Future<void> _fetchUserData() async {
     if (currentUser != null) {
       try {
-        print('Current User UID: ${currentUser!.uid}');
+        // Avoid logging authentication identifiers.
         
         // Get user data from Firestore using the UID
         DocumentSnapshot userDoc = await FirebaseFirestore.instance
@@ -126,7 +119,7 @@ class _DashboardContentState extends State<DashboardContent> {
         if (userDoc.exists) {
           print('User document exists');
           Map<String, dynamic> userData = userDoc.data() as Map<String, dynamic>;
-          print('User data: $userData');
+          // Profile details are intentionally not logged.
           
           setState(() {
             // Using your exact field names from the image
@@ -146,7 +139,7 @@ class _DashboardContentState extends State<DashboardContent> {
           });
         }
       } catch (e) {
-        print('Error fetching user data: $e');
+        // Avoid logging potentially sensitive profile errors.
         setState(() {
           _isLoading = false;
         });
@@ -174,7 +167,7 @@ class _DashboardContentState extends State<DashboardContent> {
     
     return FirebaseFirestore.instance
         .collection('medicines')
-        .where('expiryDate', isLessThanOrEqualTo: twoMonthsFromNow)
+        .where('expiryDate', isLessThanOrEqualTo: Timestamp.fromDate(twoMonthsFromNow))
         .snapshots()
         .map((snapshot) => snapshot.docs.length);
   }
