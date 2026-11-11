@@ -8,9 +8,15 @@ import 'pharma_theme.dart';
 import 'pharmacy_data.dart';
 import 'pharmacy_settings.dart';
 
+/// Optional alert filters are independently queried in Firestore rather than
+/// filtering only the first page of alphabetically sorted medicines.
+enum InventoryAlertFilter { all, lowStock, expiringSoon }
+
 /// Account-scoped, bounded live inventory with non-destructive archiving.
 class InventoryScreen extends StatefulWidget {
-  const InventoryScreen({super.key});
+  const InventoryScreen({super.key, this.initialFilter = InventoryAlertFilter.all});
+
+  final InventoryAlertFilter initialFilter;
   @override
   State<InventoryScreen> createState() => _InventoryScreenState();
 }
@@ -23,17 +29,32 @@ class _InventoryScreenState extends State<InventoryScreen> {
   int limit = pageSize;
   String selected = 'All';
   String query = '';
+  late InventoryAlertFilter alertFilter;
 
   @override
   void initState() {
     super.initState();
+    alertFilter = widget.initialFilter;
     _subscribe();
     search.addListener(_searchChanged);
   }
 
   void _subscribe() {
-    medicinesStream = PharmacyData.collection('medicines')
-        .orderBy('name').limit(limit).snapshots();
+    final collection = PharmacyData.collection('medicines');
+    switch (alertFilter) {
+      case InventoryAlertFilter.lowStock:
+        final threshold = PharmacySettingsService.instance.current.value.lowStockThreshold;
+        medicinesStream = collection.where('quantity', isLessThanOrEqualTo: threshold)
+            .orderBy('quantity').limit(limit).snapshots();
+      case InventoryAlertFilter.expiringSoon:
+        final days = PharmacySettingsService.instance.current.value.expiryWarningDays;
+        final cutoff = DateTime.now().add(Duration(days: days));
+        medicinesStream = collection.where('expiryDate',
+            isLessThanOrEqualTo: Timestamp.fromDate(cutoff))
+            .orderBy('expiryDate').limit(limit).snapshots();
+      case InventoryAlertFilter.all:
+        medicinesStream = collection.orderBy('name').limit(limit).snapshots();
+    }
   }
 
   void _searchChanged() {
@@ -144,7 +165,19 @@ class _InventoryScreenState extends State<InventoryScreen> {
                     ),
                   ],
                 ),
-                const SizedBox(height: 22),
+                const SizedBox(height: 16),
+                Wrap(spacing: 8, runSpacing: 8, children: [
+                  ChoiceChip(label: const Text('All medicines'),
+                    selected: alertFilter == InventoryAlertFilter.all,
+                    onSelected: (_) => _changeAlertFilter(InventoryAlertFilter.all)),
+                  ChoiceChip(label: const Text('Low stock'),
+                    selected: alertFilter == InventoryAlertFilter.lowStock,
+                    onSelected: (_) => _changeAlertFilter(InventoryAlertFilter.lowStock)),
+                  ChoiceChip(label: const Text('Expiring soon'),
+                    selected: alertFilter == InventoryAlertFilter.expiringSoon,
+                    onSelected: (_) => _changeAlertFilter(InventoryAlertFilter.expiringSoon)),
+                ]),
+                const SizedBox(height: 14),
                 Wrap(spacing: 10, runSpacing: 10, children: [
                   _stat('Active medicines', all.length.toString(),
                       Icons.medication_outlined, PharmaTheme.blue),
@@ -216,7 +249,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
                   )),
                 const SizedBox(height: 12),
                 Text('Showing up to ' + limit.toString() +
-                    ' records. Search and filters apply to loaded medicines.',
+                    ' records in this filter. Search applies to loaded medicines.',
                     textAlign: TextAlign.center,
                     style: const TextStyle(fontSize: 11, color: PharmaTheme.muted)),
               ],
