@@ -1,107 +1,149 @@
-import 'pharmacy_data.dart';
-import 'pharmacy_settings.dart';
+import 'package:cloud_firestore/cloud_firestore.dart' hide Order;
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart' hide Order; // HIDE Order
-import 'order_model.dart';
+
 import 'AddOrderDialog.dart';
 import 'OrderDetailsDialog.dart';
+import 'order_model.dart';
+import 'pharma_theme.dart';
+import 'pharmacy_data.dart';
+import 'pharmacy_settings.dart';
 
-
+/// Private, real-time orders with bounded reads and atomic stock restoration.
 class OrdersScreen extends StatefulWidget {
-  const OrdersScreen({Key? key}) : super(key: key);
+  const OrdersScreen({super.key});
 
   @override
   State<OrdersScreen> createState() => _OrdersScreenState();
 }
 
 class _OrdersScreenState extends State<OrdersScreen> {
-  String _selectedFilter = 'All';
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  static const _pageSize = 30;
+  static const _filters = ['All', 'Pending', 'Processing', 'Completed', 'Cancelled'];
+  final _search = TextEditingController();
+  late Stream<QuerySnapshot<Map<String, dynamic>>> _ordersStream;
+  int _limit = _pageSize;
+  String _filter = 'All';
+  String _query = '';
+  String? _workingOrder;
 
-  final List<String> _statusFilters = [
-    'All',
-    'Pending',
-    'Processing',
-    'Completed',
-    'Cancelled',
-  ];
-
-  Stream<QuerySnapshot> _getOrdersStream() {
-    Query query = PharmacyData.collection('orders');
-
-    if (_selectedFilter != 'All') {
-      query = query.where('status', isEqualTo: _selectedFilter.toLowerCase());
-    }
-
-    return query.orderBy('createdAt', descending: true).snapshots();
+  @override
+  void initState() {
+    super.initState();
+    _subscribe();
+    _search.addListener(_onSearchChanged);
   }
 
-  void _showAddOrderDialog() {
-    showDialog(
+  void _subscribe() {
+    _ordersStream = PharmacyData.collection('orders')
+        .orderBy('createdAt', descending: true)
+        .limit(_limit)
+        .snapshots();
+  }
+
+  void _onSearchChanged() {
+    if (mounted) setState(() => _query = _search.text.trim().toLowerCase());
+  }
+
+  @override
+  void dispose() {
+    _search.removeListener(_onSearchChanged);
+    _search.dispose();
+    super.dispose();
+  }
+
+  void _addOrder() {
+    showDialog<void>(
       context: context,
       barrierDismissible: false,
-      useSafeArea: false,
-      builder: (context) => AddOrderDialog(
-        onSaved: () => setState(() {}),
-      ),
+      builder: (_) => AddOrderDialog(onSaved: () {}),
     );
   }
 
-  void _showOrderDetails(Order order) {
-    showDialog(
+  void _details(Order order) {
+    showDialog<void>(
       context: context,
-      builder: (context) => OrderDetailsDialog(order: order),
+      builder: (_) => OrderDetailsDialog(order: order),
     );
   }
 
-  Future<void> _updateOrderStatus(String orderId, String newStatus) async {
-    final target = newStatus.toLowerCase();
+  /// All stock reads happen before any writes in the transaction. A second
+  /// attempt to cancel an order cannot restore stock again.
+  Future<void> _changeStatus(Order order, String target,
+      {bool archive = false}) async {
+    if (order.id == null || _workingOrder != null) return;
+    setState(() => _workingOrder = order.id);
     try {
-      final orderRef = PharmacyData.collection('orders').doc(orderId);
-      await _firestore.runTransaction((transaction) async {
-        final orderDoc = await transaction.get(orderRef);
-        if (!orderDoc.exists) throw StateError('Order no longer exists');
-        final data = orderDoc.data()!;
+      final orderRef = PharmacyData.collection('orders').doc(order.id);
+      await FirebaseFirestore.instance.runTransaction((transaction) async {
+        final snapshot = await transaction.get(orderRef);
+        if (!snapshot.exists) throw StateError('The order no longer exists.');
+        final data = snapshot.data()!;
         final previous = (data['status'] as String? ?? 'pending').toLowerCase();
-        if (previous == target) return;
-        if (previous == 'cancelled') {
-          throw StateError('Cancelled orders cannot be reopened');
+        if (data['archived'] == true) throw StateError('This order is archived.');
+
+        if (archive && target != 'cancelled') {
+          throw StateError('Orders must be cancelled before archiving.');
         }
-        if (target == 'cancelled') {
-          final requested = <String, int>{};
-          for (final raw in (data['items'] as List<dynamic>? ?? [])) {
-            final item = Map<String, dynamic>.from(raw as Map);
-            final id = item['medicineId'] as String?;
-            final qty = (item['quantity'] as num?)?.toInt() ?? 0;
-            if (id == null || id.isEmpty || qty <= 0) {
-              throw StateError('Order has invalid item data');
-            }
-            requested.update(id, (n) => n + qty, ifAbsent: () => qty);
+        if (previous == 'cancelled') {
+          if (archive) {
+            transaction.update(orderRef, {
+              'archived': true,
+              'updatedAt': FieldValue.serverTimestamp(),
+            });
+            return;
           }
-          final stockRefs = <String, DocumentReference<Map<String, dynamic>>>{};
-          final stock = <String, int>{};
-          // All reads must occur before any transaction writes.
-          for (final entry in requested.entries) {
-            final ref = PharmacyData.collection('medicines').doc(entry.key);
-            final snapshot = await transaction.get(ref);
-            if (!snapshot.exists) {
-              throw StateError('Cannot restore stock: medicine is missing');
+          throw StateError('Cancelled orders cannot be reopened.');
+        }
+        if (previous == target) return;
+        if (target == 'processing' && previous != 'pending') {
+          throw StateError('Only pending orders can start processing.');
+        }
+        if (target == 'completed' &&
+            previous != 'pending' && previous != 'processing') {
+          throw StateError('This order cannot be completed.');
+        }
+        if (!['processing', 'completed', 'cancelled'].contains(target)) {
+          throw StateError('Unsupported order status.');
+        }
+
+        if (target == 'cancelled') {
+          final quantities = <String, int>{};
+          for (final raw in (data['items'] as List<dynamic>? ?? [])) {
+            if (raw is! Map) throw StateError('Invalid order line.');
+            final item = Map<String, dynamic>.from(raw);
+            final medicineId = item['medicineId'] as String?;
+            final count = item['quantity'];
+            if (medicineId == null || medicineId.isEmpty ||
+                count is! int || count <= 0) {
+              throw StateError('Invalid order stock data.');
             }
-            final oldStock = snapshot.data()?['quantity'];
-            if (oldStock is! num || oldStock < 0) {
-              throw StateError('Cannot restore stock: invalid current quantity');
+            quantities.update(medicineId, (amount) => amount + count,
+                ifAbsent: () => count);
+          }
+          if (quantities.isEmpty) throw StateError('Order has no stock items.');
+
+          final stockRefs = <String, DocumentReference<Map<String, dynamic>>>{};
+          final stockLevels = <String, int>{};
+          for (final entry in quantities.entries) {
+            final ref = PharmacyData.collection('medicines').doc(entry.key);
+            final medicine = await transaction.get(ref);
+            final value = medicine.data()?['quantity'];
+            if (!medicine.exists || value is! int || value < 0) {
+              throw StateError('Stock cannot be restored for a missing medicine.');
             }
             stockRefs[entry.key] = ref;
-            stock[entry.key] = oldStock.toInt();
+            stockLevels[entry.key] = value;
           }
-          for (final entry in requested.entries) {
+          for (final entry in quantities.entries) {
             transaction.update(stockRefs[entry.key]!, {
-              'quantity': stock[entry.key]! + entry.value,
+              'quantity': stockLevels[entry.key]! + entry.value,
+              'updatedAt': FieldValue.serverTimestamp(),
             });
           }
           transaction.update(orderRef, {
             'status': 'cancelled',
             'stockRestored': true,
+            if (archive) 'archived': true,
             'updatedAt': FieldValue.serverTimestamp(),
           });
         } else {
@@ -111,431 +153,258 @@ class _OrdersScreenState extends State<OrdersScreen> {
           });
         }
       });
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not update order: $e')));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(archive ? 'Order archived.' : 'Order updated.')),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text(
+            'Unable to update the order. Check its status, stock and connection.',
+          )),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _workingOrder = null);
     }
   }
 
-  Future<void> _removeOrder(Order order) async {
-    final approved = await showDialog<bool>(
+  Future<void> _archive(Order order) async {
+    final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Remove order?'),
-        content: const Text('The order will be archived and hidden from the order list. Inventory is restored for an active order.'),
+        title: const Text('Archive order?'),
+        content: const Text(
+          'The order will be hidden from the active list. If it is not '
+          'already cancelled, its items will be returned to inventory once. '
+          'The history record will be retained.',
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Keep')),
-          FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Remove')),
-        ],
-      ),
-    );
-    if (approved != true || order.id == null) return;
-    if (order.status != 'cancelled') {
-      await _updateOrderStatus(order.id!, 'cancelled');
-    }
-    try {
-      final ref = PharmacyData.collection('orders').doc(order.id);
-      await FirebaseFirestore.instance.runTransaction((tx) async {
-        final document = await tx.get(ref);
-        if (!document.exists) return;
-        final data = document.data()!;
-        if (data['status'] != 'cancelled') {
-          throw StateError('Order must be cancelled before archiving');
-        }
-        tx.update(ref, {'archived': true, 'updatedAt': FieldValue.serverTimestamp()});
-      });
-    } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not remove order: $e')));
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFF071A31),
-      body: SafeArea(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Header with Add Button
-            Padding(
-              padding: const EdgeInsets.all(20),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    'Orders',
-                    style: TextStyle(
-                      fontSize: 32,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                    ),
-                  ),
-                  ElevatedButton.icon(
-                    onPressed: _showAddOrderDialog,
-                    icon: const Icon(Icons.add, size: 20),
-                    label: const Text('Add Order'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF2B7AFE),
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 20,
-                        vertical: 12,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      elevation: 0,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            // Filter Buttons
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: Row(
-                children: _statusFilters.map((filter) {
-                  return Padding(
-                    padding: const EdgeInsets.only(right: 12),
-                    child: _FilterButton(
-                      label: filter,
-                      isSelected: _selectedFilter == filter,
-                      onTap: () => setState(() => _selectedFilter = filter),
-                    ),
-                  );
-                }).toList(),
-              ),
-            ),
-            const SizedBox(height: 24),
-
-            // Orders List with StreamBuilder
-            Expanded(
-              child: StreamBuilder<QuerySnapshot>(
-                stream: _getOrdersStream(),
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const Center(
-                      child: CircularProgressIndicator(
-                        color: Color(0xFF2B7AFE),
-                      ),
-                    );
-                  }
-
-                  if (snapshot.hasError) {
-                    return const Center(
-                      child: Text(
-                        'Error loading orders',
-                        style: TextStyle(color: Colors.white),
-                      ),
-                    );
-                  }
-
-                  if (snapshot.data!.docs.isEmpty) {
-                    return Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Container(
-                            width: 100,
-                            height: 100,
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF182B45),
-                              shape: BoxShape.circle,
-                            ),
-                            child: const Icon(
-                              Icons.shopping_bag_outlined,
-                              color: Color(0xFF64748B),
-                              size: 48,
-                            ),
-                          ),
-                          const SizedBox(height: 20),
-                          const Text(
-                            'No orders found',
-                            style: TextStyle(
-                              color: Color(0xFF94A3B8),
-                              fontSize: 16,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          const Text(
-                            'Create your first order to get started',
-                            style: TextStyle(
-                              color: Color(0xFF64748B),
-                              fontSize: 14,
-                            ),
-                          ),
-                          const SizedBox(height: 24),
-                          ElevatedButton(
-                            onPressed: _showAddOrderDialog,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF2B7AFE),
-                            ),
-                            child: const Text('Create Order'),
-                          ),
-                        ],
-                      ),
-                    );
-                  }
-
-                  final orders = snapshot.data!.docs
-                      .where((doc) => doc.data() is Map && (doc.data() as Map)['archived'] != true)
-                      .map((doc) => Order.fromFirestore(doc))
-                      .toList();
-
-                  return ListView.builder(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    itemCount: orders.length,
-                    itemBuilder: (context, index) {
-                      final order = orders[index];
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 16),
-                        child: _OrderCard(
-                          order: order,
-                          onViewDetails: () => _showOrderDetails(order),
-                          onRemove: () => _removeOrder(order),
-                          onStatusUpdate: (newStatus) =>
-                              _updateOrderStatus(order.id!, newStatus),
-                        ),
-                      );
-                    },
-                  );
-                },
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _FilterButton extends StatelessWidget {
-  final String label;
-  final bool isSelected;
-  final VoidCallback onTap;
-
-  const _FilterButton({
-    Key? key,
-    required this.label,
-    required this.isSelected,
-    required this.onTap,
-  }) : super(key: key);
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-        decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF2B7AFE) : const Color(0xFF182B45),
-          borderRadius: BorderRadius.circular(24),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-            color: isSelected ? Colors.white : const Color(0xFF94A3B8),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Keep order'),
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _OrderCard extends StatelessWidget {
-  final Order order;
-  final VoidCallback onViewDetails;
-  final VoidCallback onRemove;
-  final Function(String) onStatusUpdate;
-
-  const _OrderCard({
-    Key? key,
-    required this.order,
-    required this.onViewDetails,
-    required this.onRemove,
-    required this.onStatusUpdate,
-  }) : super(key: key);
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: const Color(0xFF182B45),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Column(
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    order.customerName,
-                    style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.white,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Order #${order.id!.substring(0, 8)}',
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: Color(0xFF64748B),
-                    ),
-                  ),
-                ],
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  color: order.statusColor.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  order.status.toUpperCase(),
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: order.statusColor,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              _InfoItem(
-                icon: Icons.shopping_bag_outlined,
-                text: '${order.totalItems} items',
-              ),
-              const SizedBox(width: 24),
-              _InfoItem(
-                icon: Icons.access_time,
-                text: order.formattedTime,
-              ),
-              const SizedBox(width: 24),
-              _InfoItem(
-                icon: Icons.calendar_today,
-                text: order.formattedDate,
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                formatMoney(order.totalAmount, PharmacySettingsService.instance.current.value.currency),
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
-                ),
-              ),
-              Row(
-                children: [
-                  if (order.status != 'completed' && order.status != 'cancelled')
-                    PopupMenuButton<String>(
-                      icon: Icon(
-                        Icons.more_vert,
-                        color: order.statusColor,
-                      ),
-                      itemBuilder: (context) => [
-                        if (order.status == 'pending')
-                          const PopupMenuItem(
-                            value: 'processing',
-                            child: Text('Mark as Processing'),
-                          ),
-                        if (order.status == 'processing')
-                          const PopupMenuItem(
-                            value: 'completed',
-                            child: Text('Mark as Completed'),
-                          ),
-                        const PopupMenuItem(
-                          value: 'cancelled',
-                          child: Text('Cancel Order'),
-                        ),
-                      ],
-                      onSelected: onStatusUpdate,
-                    ),
-                  IconButton(
-                    tooltip: 'Remove order',
-                    icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
-                    onPressed: onRemove,
-                  ),
-                  const SizedBox(width: 8),
-                  TextButton(
-                    onPressed: onViewDetails,
-                    child: Row(
-                      children: const [
-                        Text(
-                          'View Details',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w600,
-                            color: Color(0xFF2B7AFE),
-                          ),
-                        ),
-                        SizedBox(width: 4),
-                        Icon(
-                          Icons.arrow_forward,
-                          size: 16,
-                          color: Color(0xFF2B7AFE),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ],
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Archive'),
           ),
         ],
       ),
     );
+    if (confirmed == true) {
+      await _changeStatus(order, 'cancelled', archive: true);
+    }
   }
-}
-
-class _InfoItem extends StatelessWidget {
-  final IconData icon;
-  final String text;
-
-  const _InfoItem({
-    Key? key,
-    required this.icon,
-    required this.text,
-  }) : super(key: key);
 
   @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Icon(
-          icon,
-          size: 16,
-          color: const Color(0xFF64748B),
-        ),
-        const SizedBox(width: 6),
-        Text(
-          text,
-          style: const TextStyle(
-            fontSize: 12,
-            color: Color(0xFF94A3B8),
+  Widget build(BuildContext context) => Scaffold(
+    body: SafeArea(
+      child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+        stream: _ordersStream,
+        builder: (context, snapshot) {
+          final docs = snapshot.data?.docs ?? [];
+          final orders = <Order>[];
+          for (final doc in docs) {
+            if (doc.data()['archived'] == true) continue;
+            try {
+              orders.add(Order.fromFirestore(doc));
+            } catch (_) {
+              // One malformed legacy record should not break the entire list.
+            }
+          }
+          final filtered = orders.where((order) {
+            final statusMatches = _filter == 'All' ||
+                order.status.toLowerCase() == _filter.toLowerCase();
+            final searchMatches = _query.isEmpty ||
+                order.customerName.toLowerCase().contains(_query) ||
+                (order.id?.toLowerCase().contains(_query) ?? false);
+            return statusMatches && searchMatches;
+          }).toList();
+          return LayoutBuilder(builder: (context, viewport) {
+            final inset = viewport.maxWidth >= 800 ? 30.0 : 16.0;
+            return ListView(
+              padding: EdgeInsets.fromLTRB(inset, 22, inset, 34),
+              children: [
+                Wrap(
+                  alignment: WrapAlignment.spaceBetween,
+                  spacing: 12,
+                  runSpacing: 12,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    const Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Orders', style: TextStyle(
+                          fontSize: 29, fontWeight: FontWeight.w800)),
+                        SizedBox(height: 4),
+                        Text('Track and manage pharmacy orders',
+                          style: TextStyle(color: PharmaTheme.muted)),
+                      ],
+                    ),
+                    FilledButton.icon(
+                      onPressed: _addOrder,
+                      icon: const Icon(Icons.add_rounded),
+                      label: const Text('New order'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 23),
+                TextField(
+                  controller: _search,
+                  decoration: InputDecoration(
+                    hintText: 'Search customer or order ID',
+                    prefixIcon: const Icon(Icons.search_rounded),
+                    suffixIcon: _query.isEmpty ? null : IconButton(
+                      tooltip: 'Clear search',
+                      icon: const Icon(Icons.close),
+                      onPressed: _search.clear,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 13),
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(children: [
+                    for (final item in _filters)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: ChoiceChip(
+                          label: Text(item),
+                          selected: _filter == item,
+                          onSelected: (_) => setState(() => _filter = item),
+                        ),
+                      ),
+                  ]),
+                ),
+                const SizedBox(height: 17),
+                if (snapshot.hasError)
+                  _empty(Icons.cloud_off_outlined, 'Orders unavailable',
+                    'Check your connection and access permissions.')
+                else if (!snapshot.hasData)
+                  const Padding(
+                    padding: EdgeInsets.all(40),
+                    child: Center(child: CircularProgressIndicator()),
+                  )
+                else if (filtered.isEmpty)
+                  _empty(Icons.receipt_long_outlined,
+                    orders.isEmpty ? 'No orders yet' : 'No matching orders',
+                    orders.isEmpty
+                      ? 'Create your first order to begin tracking sales.'
+                      : 'Try a different search or status.'),
+                for (final order in filtered) _orderCard(order),
+                const SizedBox(height: 16),
+                if (docs.length >= _limit)
+                  Center(child: OutlinedButton.icon(
+                    onPressed: () => setState(() {
+                      _limit += _pageSize;
+                      _subscribe();
+                    }),
+                    icon: const Icon(Icons.expand_more),
+                    label: const Text('Load more orders'),
+                  )),
+                const SizedBox(height: 12),
+                Text('Showing up to ' + _limit.toString() +
+                    ' records. Filters apply to loaded orders.',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 11, color: PharmaTheme.muted)),
+              ],
+            );
+          });
+        },
+      ),
+    ),
+  );
+
+  Widget _orderCard(Order order) {
+    final busy = _workingOrder == order.id;
+    final currency = PharmacySettingsService.instance.current.value.currency;
+    final status = order.status.toLowerCase();
+    final accent = status == 'completed' ? PharmaTheme.teal :
+        status == 'cancelled' ? const Color(0xFFFF8993) :
+        status == 'processing' ? PharmaTheme.blue :
+        const Color(0xFFFFB45D);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            CircleAvatar(
+              backgroundColor: PharmaTheme.blue.withValues(alpha: .2),
+              child: const Icon(Icons.receipt_long_rounded,
+                  color: PharmaTheme.blue),
+            ),
+            const SizedBox(width: 12),
+            Expanded(child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(order.customerName.isEmpty ? 'Customer' : order.customerName,
+                  maxLines: 1, overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+                Text(order.formattedDate + ' · ' + order.totalItems.toString() + ' items',
+                  style: const TextStyle(fontSize: 12, color: PharmaTheme.muted)),
+              ],
+            )),
+            Flexible(child: Text(formatMoney(order.totalAmount, currency),
+              maxLines: 1, overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontWeight: FontWeight.w800))),
+          ]),
+          const SizedBox(height: 14),
+          Wrap(
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 10,
+            runSpacing: 8,
+            children: [
+              Chip(
+                avatar: Icon(Icons.circle, size: 12, color: accent),
+                label: Text(order.status.toUpperCase()),
+                visualDensity: VisualDensity.compact,
+              ),
+              TextButton.icon(
+                onPressed: busy ? null : () => _details(order),
+                icon: const Icon(Icons.visibility_outlined, size: 18),
+                label: const Text('Details'),
+              ),
+              if (status == 'pending')
+                TextButton(
+                  onPressed: busy ? null : () => _changeStatus(order, 'processing'),
+                  child: const Text('Process'),
+                ),
+              if (status == 'pending' || status == 'processing')
+                TextButton(
+                  onPressed: busy ? null : () => _changeStatus(order, 'completed'),
+                  child: const Text('Complete'),
+                ),
+              if (status != 'cancelled')
+                TextButton(
+                  onPressed: busy ? null : () => _changeStatus(order, 'cancelled'),
+                  child: const Text('Cancel'),
+                ),
+              IconButton(
+                tooltip: 'Archive order',
+                onPressed: busy ? null : () => _archive(order),
+                icon: const Icon(Icons.archive_outlined),
+              ),
+            ],
           ),
-        ),
-      ],
+        ]),
+      ),
     );
   }
+
+  Widget _empty(IconData icon, String title, String message) => Card(
+    child: Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 36),
+      child: Column(children: [
+        Icon(icon, color: PharmaTheme.muted, size: 42),
+        const SizedBox(height: 12),
+        Text(title, style: const TextStyle(
+          fontSize: 17, fontWeight: FontWeight.w700)),
+        const SizedBox(height: 7),
+        Text(message, textAlign: TextAlign.center,
+          style: const TextStyle(color: PharmaTheme.muted)),
+      ]),
+    ),
+  );
 }
