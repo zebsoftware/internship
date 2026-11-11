@@ -52,6 +52,38 @@ service cloud.firestore {
         && request.resource.data.createdAt is timestamp;
     }
 
+    function validOrderStatusUpdate() {
+      // Existing item/financial/customer data cannot be overwritten after creation.
+      // This still does not replace a trusted server-side audit of sales totals.
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status', 'stockRestored', 'archived', 'updatedAt'
+        ])
+        && resource.data.get('archived', false) != true
+        && (
+          (resource.data.status == 'pending'
+            && request.resource.data.status in [
+              'pending', 'processing', 'completed', 'cancelled'
+            ]) ||
+          (resource.data.status == 'processing'
+            && request.resource.data.status in [
+              'processing', 'completed', 'cancelled'
+            ]) ||
+          (resource.data.status == 'completed'
+            && request.resource.data.status in ['completed', 'cancelled']) ||
+          (resource.data.status == 'cancelled'
+            && request.resource.data.status == 'cancelled')
+        )
+        && (
+          request.resource.data.get('archived', false) != true ||
+          request.resource.data.status == 'cancelled'
+        )
+        && (
+          request.resource.data.status != 'cancelled' ||
+          request.resource.data.get('stockRestored', false) == true ||
+          resource.data.status == 'cancelled'
+        );
+    }
+
     function validPharmacySettings() {
       return request.resource.data.name is string
         && request.resource.data.currency in ['PKR', 'USD', 'EUR', 'GBP', 'AED']
@@ -72,7 +104,9 @@ service cloud.firestore {
       allow list, delete: if false;
 
       match /medicines/{medicineId} {
-        allow read, delete: if signedInAs(uid);
+        allow read: if signedInAs(uid);
+        // Archive medicines to retain order references and stock history.
+        allow delete: if false;
         allow create, update: if signedInAs(uid) && validMedicine();
       }
 
@@ -80,7 +114,10 @@ service cloud.firestore {
         allow read: if signedInAs(uid);
         // Orders are archived rather than permanently deleted to preserve history.
         allow delete: if false;
-        allow create, update: if signedInAs(uid) && validOrder();
+        allow create: if signedInAs(uid) && validOrder()
+          && request.resource.data.get('archived', false) != true;
+        allow update: if signedInAs(uid) && validOrder()
+          && validOrderStatusUpdate();
       }
 
       match /stockAdjustments/{adjustmentId} {
