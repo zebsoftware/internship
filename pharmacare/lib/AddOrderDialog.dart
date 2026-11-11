@@ -39,23 +39,35 @@ class _AddOrderDialogState extends State<AddOrderDialog> {
   @override
   void initState() {
     super.initState();
-    PharmacySettingsService.instance.listen();
     _loadMedicines();
   }
 
   void _loadMedicines() {
-    try {
-      _inventorySubscription = PharmacyData.collection('medicines').snapshots().listen((snapshot) {
-        if (!mounted) return;
-        setState(() {
-          _availableMedicines = snapshot.docs.map((doc) => Medicine.fromFirestore(doc))
-            .where((medicine) => medicine.quantity > 0 && !medicine.expiryDate.isBefore(DateTime.now()))
-            .toList();
-        });
-      });
-    } catch (e) {
-      print('Error loading medicines: $e');
-    }
+    // Keep the checkout subscription bounded; use inventory management to
+    // search beyond the first 250 alphabetically ordered stock records.
+    _inventorySubscription = PharmacyData.collection('medicines')
+        .orderBy('name').limit(250).snapshots().listen((snapshot) {
+      if (!mounted) return;
+      final available = <Medicine>[];
+      for (final doc in snapshot.docs) {
+        if (doc.data()['archived'] == true) continue;
+        try {
+          final medicine = Medicine.fromFirestore(doc);
+          if (medicine.quantity > 0 &&
+              !medicine.expiryDate.isBefore(DateTime.now())) {
+            available.add(medicine);
+          }
+        } catch (_) {
+          // Invalid legacy entries are ignored rather than crashing checkout.
+        }
+      }
+      setState(() => _availableMedicines = available);
+    }, onError: (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Could not load stock. Check your connection and try again.'),
+      ));
+    });
   }
 
   @override
@@ -213,8 +225,17 @@ class _AddOrderDialogState extends State<AddOrderDialog> {
           if (!snapshot.exists) {
             throw StateError('${item.medicineName} is no longer available.');
           }
-          final stock = snapshot.data()?['quantity'];
-          if (stock is! num || stock < 0) {
+          final data = snapshot.data()!;
+          if (data['archived'] == true) {
+            throw StateError('An archived medicine cannot be sold.');
+          }
+          final expiry = data['expiryDate'];
+          if (expiry is! firestore.Timestamp ||
+              expiry.toDate().isBefore(DateTime.now())) {
+            throw StateError('Expired medicine cannot be sold.');
+          }
+          final stock = data['quantity'];
+          if (stock is! int || stock < 0) {
             throw StateError('Invalid stock record for ${item.medicineName}.');
           }
           refs[item.medicineId] = ref;
