@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
+import 'inventory_screen.dart';
 import 'pharma_theme.dart';
 import 'pharmacy_data.dart';
 import 'pharmacy_settings.dart';
@@ -193,9 +194,11 @@ class _PharmaHomeState extends State<PharmaHome> {
                                 _metric('Orders (loaded)', loading ? '—' : '${orderDocs.length}',
                                   Icons.receipt_long_rounded, PharmaTheme.blue),
                                 _metric('Low stock (loaded)', loading ? '—' : '$lowStock',
-                                  Icons.inventory_2_outlined, const Color(0xFFFFB45D)),
-                                _metric('Expiring soon', loading ? '—' : '$expiring',
-                                  Icons.event_busy_outlined, const Color(0xFFFF8993)),
+                                  Icons.inventory_2_outlined, const Color(0xFFFFB45D),
+                                  onTap: loading || failure ? null : () => _openInventory(InventoryAlertFilter.lowStock)),
+                                _metric('Expiring soon (loaded)', loading ? '—' : '$expiring',
+                                  Icons.event_busy_outlined, const Color(0xFFFF8993),
+                                  onTap: loading || failure ? null : () => _openInventory(InventoryAlertFilter.expiringSoon)),
                                 _metric('Sales (loaded)',
                                   loading ? '—' : formatMoney(sales, settings.currency),
                                   Icons.payments_outlined, PharmaTheme.teal),
@@ -278,8 +281,22 @@ class _PharmaHomeState extends State<PharmaHome> {
     );
   }
 
-  Widget _metric(String label, String value, IconData icon, Color accent) {
-    return Container(
+  void _openInventory(InventoryAlertFilter filter) {
+    Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => Scaffold(
+        appBar: AppBar(title: Text(filter == InventoryAlertFilter.lowStock
+            ? 'Low-stock medicines' : 'Expiring medicines')),
+        body: InventoryScreen(initialFilter: filter),
+      ),
+    ));
+  }
+
+  Widget _metric(String label, String value, IconData icon, Color accent,
+      {VoidCallback? onTap}) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(20),
+      child: Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: PharmaTheme.card,
@@ -304,13 +321,18 @@ class _PharmaHomeState extends State<PharmaHome> {
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
           ),
-          Text(
-            label,
-            maxLines: 2,
-            style: const TextStyle(fontSize: 12, color: PharmaTheme.muted),
-          ),
+          Row(children: [
+            Expanded(child: Text(
+              label,
+              maxLines: 2,
+              style: const TextStyle(fontSize: 12, color: PharmaTheme.muted),
+            )),
+            if (onTap != null)
+              const Icon(Icons.arrow_forward_ios_rounded,
+                size: 13, color: PharmaTheme.muted),
+          ]),
         ],
       ),
-    );
+    ));
   }
 }
