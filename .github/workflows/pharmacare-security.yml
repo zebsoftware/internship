@@ -1,0 +1,60 @@
+name: PharmaCare Firestore Security Tests
+
+on:
+  push:
+    branches:
+      - fix/pharmacare-reliability-oct24
+    paths:
+      - 'pharmacare/firestore.rules'
+      - 'pharmacare/security-tests/**'
+      - '.github/workflows/pharmacare-security.yml'
+  pull_request:
+    paths:
+      - 'pharmacare/firestore.rules'
+      - 'pharmacare/security-tests/**'
+      - '.github/workflows/pharmacare-security.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pharmacare-security-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  firestore-rules:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: pharmacare
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Set up Java for Firestore emulator
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Install Firebase emulator test dependencies
+        run: |
+          npm install --no-save --prefix security-tests \
+            @firebase/rules-unit-testing@6.0.0 \
+            firebase@13.0.0 \
+            firebase-tools@15.35.0
+
+      - name: Verify Firestore rules without live Firebase credentials
+        run: |
+          security-tests/node_modules/.bin/firebase emulators:exec \
+            --only firestore \
+            --project demo-pharmacare-security \
+            "node --test security-tests/firestore.rules.test.mjs"
