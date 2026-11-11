@@ -1,514 +1,333 @@
-import 'pharmacy_data.dart';
-import 'adjust_stock_dialog.dart';
-import 'pharmacy_settings.dart';
-import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'medicine_model.dart';
+import 'package:flutter/material.dart';
+
 import 'AddMedicineDialog.dart';
+import 'adjust_stock_dialog.dart';
+import 'medicine_model.dart';
+import 'pharma_theme.dart';
+import 'pharmacy_data.dart';
+import 'pharmacy_settings.dart';
 
+/// Account-scoped, bounded live inventory with non-destructive archiving.
 class InventoryScreen extends StatefulWidget {
-  const InventoryScreen({Key? key}) : super(key: key);
-
+  const InventoryScreen({super.key});
   @override
   State<InventoryScreen> createState() => _InventoryScreenState();
 }
 
 class _InventoryScreenState extends State<InventoryScreen> {
-  String _selectedCategory = 'All Items';
-  String _searchQuery = '';
-  final TextEditingController _searchController = TextEditingController();
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  static const pageSize = 40;
+  static const categories = ['All', 'Tablet', 'Capsule', 'Syrup', 'Injection'];
+  final search = TextEditingController();
+  late Stream<QuerySnapshot<Map<String, dynamic>>> medicinesStream;
+  int limit = pageSize;
+  String selected = 'All';
+  String query = '';
 
-  final List<String> _medicineTypes = [
-    'Tablet',
-    'Capsule',
-    'Syrup',
-    'Injection',
-  ];
+  @override
+  void initState() {
+    super.initState();
+    _subscribe();
+    search.addListener(_searchChanged);
+  }
+
+  void _subscribe() {
+    medicinesStream = PharmacyData.collection('medicines')
+        .orderBy('name').limit(limit).snapshots();
+  }
+
+  void _searchChanged() {
+    if (mounted) setState(() => query = search.text.toLowerCase().trim());
+  }
 
   @override
   void dispose() {
-    _searchController.dispose();
+    search.removeListener(_searchChanged);
+    search.dispose();
     super.dispose();
   }
 
-  Stream<QuerySnapshot> _getMedicinesStream() {
-    return PharmacyData.collection('medicines').snapshots();
-  }
-
-  void _showAddMedicineDialog({Medicine? medicine}) {
-    showDialog(
+  void _edit([Medicine? medicine]) {
+    showDialog<void>(
       context: context,
       barrierDismissible: false,
-      builder: (context) => AddMedicineDialog(
-        medicine: medicine,
-        onSaved: () => setState(() {}),
-      ),
+      builder: (_) => AddMedicineDialog(medicine: medicine, onSaved: () {}),
     );
   }
 
-  void _showStockAdjustment(Medicine medicine) {
-    showDialog(context: context, builder: (_) => AdjustStockDialog(medicine: medicine));
-  }
-
-  Future<void> _deleteMedicine(String medicineId) async {
-    showDialog(
+  Future<void> _archive(Medicine medicine) async {
+    if (medicine.id == null) return;
+    final confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF1E293B),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-        ),
-        title: const Text(
-          'Delete Medicine',
-          style: TextStyle(
-            color: Colors.white,
-            fontWeight: FontWeight.bold,
-          ),
-        ),
-        content: const Text(
-          'Are you sure you want to delete this medicine?',
-          style: TextStyle(
-            color: Color(0xFF94A3B8),
-          ),
-        ),
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Archive medicine?'),
+        content: Text(medicine.name +
+            ' will be hidden from active inventory. Historical orders remain intact.'),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text(
-              'Cancel',
-              style: TextStyle(color: Color(0xFF64748B)),
-            ),
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Keep'),
           ),
-          ElevatedButton(
-            onPressed: () async {
-              Navigator.pop(context);
-              await PharmacyData.collection('medicines').doc(medicineId).delete();
-              setState(() {});
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFEF4444),
-            ),
-            child: const Text('Delete'),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Archive'),
           ),
         ],
       ),
     );
+    if (confirmed != true) return;
+    try {
+      await PharmacyData.collection('medicines').doc(medicine.id).update({
+        'archived': true,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Medicine archived; stock history preserved.')),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Could not archive medicine. Please retry.')),
+        );
+      }
+    }
   }
 
   @override
-  Widget build(BuildContext context) {
-    return SafeArea(
-      child: Column(
-        children: [
-          // Header - EXACTLY SAME AS BEFORE
-          Padding(
-            padding: const EdgeInsets.all(20),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+  Widget build(BuildContext context) => Scaffold(
+    body: SafeArea(
+      child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+        stream: medicinesStream,
+        builder: (context, snapshot) {
+          final documents = snapshot.data?.docs ?? [];
+          final all = <Medicine>[];
+          for (final doc in documents) {
+            if (doc.data()['archived'] == true) continue;
+            try {
+              all.add(Medicine.fromFirestore(doc));
+            } catch (_) {
+              // Damaged legacy records must not crash the entire screen.
+            }
+          }
+          final matching = all.where((medicine) =>
+            (selected == 'All' || medicine.type.toLowerCase() == selected.toLowerCase()) &&
+            (query.isEmpty || medicine.name.toLowerCase().contains(query) ||
+                medicine.batchNo.toLowerCase().contains(query))).toList();
+          final threshold = PharmacySettingsService.instance.current.value.lowStockThreshold;
+          final low = all.where((m) => m.quantity > 0 && m.quantity <= threshold).length;
+          final out = all.where((m) => m.quantity == 0).length;
+
+          return LayoutBuilder(builder: (context, viewport) {
+            final inset = viewport.maxWidth >= 800 ? 30.0 : 16.0;
+            return ListView(
+              padding: EdgeInsets.fromLTRB(inset, 22, inset, 34),
               children: [
-                const Text(
-                  'Inventory',
-                  style: TextStyle(
-                    fontSize: 32,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
+                Wrap(
+                  alignment: WrapAlignment.spaceBetween,
+                  spacing: 12,
+                  runSpacing: 12,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    const Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Text('Inventory',
+                        style: TextStyle(fontSize: 29, fontWeight: FontWeight.w800)),
+                      SizedBox(height: 4),
+                      Text('Keep stock organized and up to date',
+                        style: TextStyle(color: PharmaTheme.muted)),
+                    ]),
+                    FilledButton.icon(
+                      onPressed: () => _edit(),
+                      icon: const Icon(Icons.add_rounded),
+                      label: const Text('Add medicine'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 22),
+                Wrap(spacing: 10, runSpacing: 10, children: [
+                  _stat('Active medicines', all.length.toString(),
+                      Icons.medication_outlined, PharmaTheme.blue),
+                  _stat('Low stock', low.toString(),
+                      Icons.warning_amber_rounded, const Color(0xFFFFB45D)),
+                  _stat('Out of stock', out.toString(),
+                      Icons.inventory_2_outlined, const Color(0xFFF38E99)),
+                ]),
+                const SizedBox(height: 22),
+                TextField(
+                  controller: search,
+                  decoration: InputDecoration(
+                    hintText: 'Search medicine or batch',
+                    prefixIcon: const Icon(Icons.search_rounded),
+                    suffixIcon: query.isEmpty ? null : IconButton(
+                      tooltip: 'Clear search',
+                      icon: const Icon(Icons.close_rounded),
+                      onPressed: search.clear,
+                    ),
                   ),
                 ),
-                ElevatedButton.icon(
-                  onPressed: () => _showAddMedicineDialog(),
-                  icon: const Icon(Icons.add, size: 20),
-                  label: const Text('Add'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF2B7AFE),
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 20,
-                      vertical: 12,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    elevation: 0,
-                  ),
-                ),
-              ],
-            ),
-          ),
-
-          // Search and Filter - EXACTLY SAME AS BEFORE
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 12,
-                    ),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF1E293B),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.search, color: Color(0xFF64748B)),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: TextField(
-                            controller: _searchController,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 14,
-                            ),
-                            decoration: const InputDecoration(
-                              hintText: 'Search inventory...',
-                              hintStyle: TextStyle(
-                                color: Color(0xFF64748B),
-                              ),
-                              border: InputBorder.none,
-                            ),
-                            onChanged: (value) {
-                              setState(() {
-                                _searchQuery = value.trim();
-                              });
-                            },
-                          ),
+                const SizedBox(height: 12),
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(children: [
+                    for (final category in categories)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: ChoiceChip(
+                          label: Text(category),
+                          selected: selected == category,
+                          onSelected: (_) => setState(() => selected = category),
                         ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF1E293B),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: const Icon(
-                    Icons.filter_list,
-                    color: Colors.white,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 20),
-
-          // Category Filters - EXACTLY SAME AS BEFORE
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: Row(
-              children: [
-                _CategoryButton(
-                  label: 'All Items',
-                  isSelected: _selectedCategory == 'All Items',
-                  onTap: () => setState(() => _selectedCategory = 'All Items'),
-                ),
-                const SizedBox(width: 12),
-                _CategoryButton(
-                  label: 'Tablet',
-                  isSelected: _selectedCategory == 'Tablet',
-                  onTap: () => setState(() => _selectedCategory = 'Tablet'),
-                ),
-                const SizedBox(width: 12),
-                _CategoryButton(
-                  label: 'Capsule',
-                  isSelected: _selectedCategory == 'Capsule',
-                  onTap: () => setState(() => _selectedCategory = 'Capsule'),
-                ),
-                const SizedBox(width: 12),
-                _CategoryButton(
-                  label: 'Syrup',
-                  isSelected: _selectedCategory == 'Syrup',
-                  onTap: () => setState(() => _selectedCategory = 'Syrup'),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 24),
-
-          // Inventory List with StreamBuilder
-          Expanded(
-            child: StreamBuilder<QuerySnapshot>(
-              stream: _getMedicinesStream(),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(
-                    child: CircularProgressIndicator(
-                      color: Color(0xFF2B7AFE),
-                    ),
-                  );
-                }
-
-                if (snapshot.hasError) {
-                  return const Center(
-                    child: Text(
-                      'Error loading inventory',
-                      style: TextStyle(color: Colors.white),
-                    ),
-                  );
-                }
-
-                if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-                  return Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Container(
-                          width: 100,
-                          height: 100,
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF1E293B),
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(
-                            Icons.inventory_2_outlined,
-                            color: Color(0xFF64748B),
-                            size: 48,
-                          ),
-                        ),
-                        const SizedBox(height: 20),
-                        const Text(
-                          'No medicines found',
-                          style: TextStyle(
-                            color: Color(0xFF94A3B8),
-                            fontSize: 16,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        const Text(
-                          'Add your first medicine to get started',
-                          style: TextStyle(
-                            color: Color(0xFF64748B),
-                            fontSize: 14,
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-                }
-
-                final search = _searchQuery.toLowerCase().trim();
-                final medicines = snapshot.data!.docs
-                    .map((doc) => Medicine.fromFirestore(doc))
-                    .where((m) => (_selectedCategory == 'All Items' || m.type.trim().toLowerCase() == _selectedCategory.toLowerCase()) &&
-                      (search.isEmpty || m.name.toLowerCase().contains(search) ||
-                      m.batchNo.toLowerCase().contains(search) ||
-                      m.type.toLowerCase().contains(search)))
-                    .toList();
-
-                if (medicines.isEmpty) {
-                  return const Center(child: Text('No medicines match this filter', style: TextStyle(color: Colors.white70)));
-                }
-
-                return ListView.builder(
-                  padding: const EdgeInsets.symmetric(horizontal: 20),
-                  itemCount: medicines.length,
-                  itemBuilder: (context, index) {
-                    final medicine = medicines[index];
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: _InventoryCard(
-                        medicine: medicine,
-                        onEdit: () =>
-                            _showAddMedicineDialog(medicine: medicine),
-                        onDelete: () => _deleteMedicine(medicine.id!),
-                        onStock: () => _showStockAdjustment(medicine),
                       ),
-                    );
-                  },
-                );
-              },
-            ),
-          ),
-        ],
+                  ]),
+                ),
+                const SizedBox(height: 16),
+                if (snapshot.hasError)
+                  _message(Icons.cloud_off_outlined, 'Inventory unavailable',
+                      'Check your connection and access permissions.')
+                else if (!snapshot.hasData)
+                  const Padding(
+                    padding: EdgeInsets.all(40),
+                    child: Center(child: CircularProgressIndicator()),
+                  )
+                else if (matching.isEmpty)
+                  _message(Icons.inventory_2_outlined,
+                      all.isEmpty ? 'Start your inventory' : 'No matches found',
+                      all.isEmpty ? 'Add your first medicine to begin.' : 'Try another search or filter.')
+                else
+                  LayoutBuilder(builder: (context, size) {
+                    final columns = size.maxWidth >= 1050 ? 3 :
+                        size.maxWidth >= 660 ? 2 : 1;
+                    final cardWidth = (size.maxWidth - 12 * (columns - 1)) / columns;
+                    return Wrap(spacing: 12, runSpacing: 12, children: [
+                      for (final medicine in matching)
+                        SizedBox(width: cardWidth, child: _card(medicine)),
+                    ]);
+                  }),
+                const SizedBox(height: 20),
+                if (documents.length >= limit)
+                  Center(child: OutlinedButton.icon(
+                    onPressed: () => setState(() {
+                      limit += pageSize;
+                      _subscribe();
+                    }),
+                    icon: const Icon(Icons.expand_more),
+                    label: const Text('Load more medicines'),
+                  )),
+                const SizedBox(height: 12),
+                Text('Showing up to ' + limit.toString() +
+                    ' records. Search and filters apply to loaded medicines.',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontSize: 11, color: PharmaTheme.muted)),
+              ],
+            );
+          });
+        },
       ),
-    );
-  }
-}
+    ),
+  );
 
-class _CategoryButton extends StatelessWidget {
-  final String label;
-  final bool isSelected;
-  final VoidCallback onTap;
-
-  const _CategoryButton({
-    Key? key,
-    required this.label,
-    required this.isSelected,
-    required this.onTap,
-  }) : super(key: key);
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+  Widget _stat(String label, String value, IconData icon, Color accent) =>
+      Container(
+        width: 160,
+        padding: const EdgeInsets.all(15),
         decoration: BoxDecoration(
-          color: isSelected
-              ? const Color(0xFF2B7AFE)
-              : const Color(0xFF1E293B),
-          borderRadius: BorderRadius.circular(24),
+          color: PharmaTheme.card,
+          border: Border.all(color: const Color(0xFF344761)),
+          borderRadius: BorderRadius.circular(18),
         ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
-            color: isSelected ? Colors.white : const Color(0xFF94A3B8),
-          ),
-        ),
-      ),
-    );
-  }
-}
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Icon(icon, color: accent),
+          const SizedBox(height: 9),
+          Text(value, style: const TextStyle(fontSize: 23, fontWeight: FontWeight.w800)),
+          Text(label, style: const TextStyle(fontSize: 12, color: PharmaTheme.muted)),
+        ]),
+      );
 
-class _InventoryCard extends StatelessWidget {
-  final Medicine medicine;
-  final VoidCallback onEdit;
-  final VoidCallback onDelete;
-  final VoidCallback onStock;
-
-  const _InventoryCard({
-    Key? key,
-    required this.medicine,
-    required this.onEdit,
-    required this.onDelete,
-    required this.onStock,
-  }) : super(key: key);
-
-  @override
-  Widget build(BuildContext context) {
-    final unitColor = medicine.statusColor;
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: const Color(0xFF1E293B),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Row(
-        children: [
-          // Medicine Icon - EXACTLY SAME AS BEFORE
-          Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              color: const Color(0xFF2B7AFE).withOpacity(0.1),
-              borderRadius: BorderRadius.circular(12),
+  Widget _card(Medicine medicine) {
+    final threshold = PharmacySettingsService.instance.current.value.lowStockThreshold;
+    final accent = medicine.quantity == 0 ? const Color(0xFFF38E99) :
+        medicine.quantity <= threshold ? const Color(0xFFFFB45D) : PharmaTheme.teal;
+    final date = medicine.expiryDate;
+    final expiry = date.day.toString().padLeft(2, '0') + '/' +
+        date.month.toString().padLeft(2, '0') + '/' + date.year.toString();
+    return Card(
+      margin: EdgeInsets.zero,
+      child: Padding(
+        padding: const EdgeInsets.all(17),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            CircleAvatar(
+              backgroundColor: PharmaTheme.blue.withValues(alpha: .2),
+              child: const Icon(Icons.medication_rounded, color: PharmaTheme.blue),
             ),
-            child: const Icon(
-              Icons.medication,
-              color: Color(0xFF2B7AFE),
-              size: 24,
-            ),
-          ),
-          const SizedBox(width: 16),
-
-          // Medicine Info - EXACTLY SAME AS BEFORE
-          Expanded(
-            child: Column(
+            const SizedBox(width: 11),
+            Expanded(child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  medicine.name,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    color: Colors.white,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  medicine.type,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: Color(0xFF64748B),
-                  ),
-                ),
+                Text(medicine.name, maxLines: 1, overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                Text(medicine.type + ' · Batch ' + medicine.batchNo,
+                  maxLines: 1, overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: PharmaTheme.muted, fontSize: 12)),
               ],
+            )),
+          ]),
+          const SizedBox(height: 15),
+          Wrap(spacing: 8, runSpacing: 8, children: [
+            Chip(
+              avatar: Icon(Icons.inventory_2_outlined, color: accent, size: 16),
+              label: Text(medicine.quantity.toString() + ' units'),
+              visualDensity: VisualDensity.compact,
             ),
-          ),
-
-          // Price and Units - EXACTLY SAME AS BEFORE
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text(
-                formatMoney(medicine.sellingPrice, PharmacySettingsService.instance.current.value.currency),
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                '${medicine.quantity} units',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: unitColor,
-                ),
-              ),
-            ],
-          ),
-
-          const SizedBox(width: 12),
-
-          // Menu Button with Edit/Delete options
-          PopupMenuButton<String>(
-            icon: const Icon(
-              Icons.more_vert,
-              color: Color(0xFF64748B),
+            Chip(
+              avatar: const Icon(Icons.event_outlined, size: 16),
+              label: Text('Exp ' + expiry),
+              visualDensity: VisualDensity.compact,
             ),
-            padding: EdgeInsets.zero,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8),
+          ]),
+          const SizedBox(height: 12),
+          const Text('Selling price',
+              style: TextStyle(color: PharmaTheme.muted, fontSize: 12)),
+          Text(formatMoney(medicine.sellingPrice,
+                  PharmacySettingsService.instance.current.value.currency),
+              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
+          const Divider(height: 22),
+          Wrap(spacing: 5, children: [
+            TextButton.icon(
+              onPressed: () => _edit(medicine),
+              icon: const Icon(Icons.edit_outlined, size: 18),
+              label: const Text('Edit'),
             ),
-            itemBuilder: (context) => [
-              PopupMenuItem(
-                value: 'edit',
-                child: Row(
-                  children: [
-                    Icon(Icons.edit,
-                        size: 18, color: const Color(0xFF64748B)),
-                    const SizedBox(width: 8),
-                    const Text('Edit'),
-                  ],
-                ),
+            TextButton.icon(
+              onPressed: () => showDialog<void>(
+                context: context,
+                builder: (_) => AdjustStockDialog(medicine: medicine),
               ),
-              const PopupMenuItem(value: 'stock', child: Text('Add / Return Stock')),
-              PopupMenuItem(
-                value: 'delete',
-                child: Row(
-                  children: [
-                    Icon(Icons.delete,
-                        size: 18, color: const Color(0xFFEF4444)),
-                    const SizedBox(width: 8),
-                    const Text('Delete',
-                        style: TextStyle(color: Color(0xFFEF4444))),
-                  ],
-                ),
-              ),
-            ],
-            onSelected: (value) {
-              if (value == 'edit') {
-                onEdit();
-              } else if (value == 'stock') {
-                onStock();
-              } else if (value == 'delete') {
-                onDelete();
-              }
-            },
-          ),
-        ],
+              icon: const Icon(Icons.add_box_outlined, size: 18),
+              label: const Text('Stock'),
+            ),
+            IconButton(
+              tooltip: 'Archive medicine',
+              onPressed: () => _archive(medicine),
+              icon: const Icon(Icons.archive_outlined, size: 20),
+            ),
+          ]),
+        ]),
       ),
     );
   }
+
+  Widget _message(IconData icon, String title, String detail) =>
+      Card(child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 36),
+        child: Column(children: [
+          Icon(icon, color: PharmaTheme.muted, size: 42),
+          const SizedBox(height: 12),
+          Text(title, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700)),
+          const SizedBox(height: 6),
+          Text(detail, textAlign: TextAlign.center,
+            style: const TextStyle(color: PharmaTheme.muted)),
+        ]),
+      ));
 }
