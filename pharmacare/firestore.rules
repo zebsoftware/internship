@@ -5,8 +5,25 @@ service cloud.firestore {
       return request.auth != null && request.auth.uid == uid;
     }
 
+    function profileCreatedByOwner(uid) {
+      return signedInAs(uid)
+        && request.resource.data.uid == uid
+        && request.resource.data.email == request.auth.token.email;
+    }
+
+    function protectedProfileFieldsUnchanged() {
+      // These fields represent account identity or server-managed state.
+      // Self-service settings can still update name and phone fields.
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+        'uid', 'email', 'licenseNumber', 'accountType',
+        'isActive', 'createdAt'
+      ]);
+    }
+
     match /users/{uid} {
-      allow get, create, update: if signedInAs(uid);
+      allow get: if signedInAs(uid);
+      allow create: if profileCreatedByOwner(uid);
+      allow update: if signedInAs(uid) && protectedProfileFieldsUnchanged();
       allow list, delete: if false;
 
       match /{subcollection}/{documentId} {
@@ -15,8 +32,8 @@ service cloud.firestore {
       }
     }
 
-    // Existing global collections are not a safe multi-user data store.
-    // Legacy records must be backed up and migrated by an administrator.
+    // Legacy shared collections are intentionally inaccessible.
+    // Back up and migrate legacy records via trusted administrator tooling.
     match /medicines/{docId} { allow read, write: if false; }
     match /orders/{docId} { allow read, write: if false; }
     match /stockAdjustments/{docId} { allow read, write: if false; }
