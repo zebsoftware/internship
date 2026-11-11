@@ -57,6 +57,15 @@ class _InventoryScreenState extends State<InventoryScreen> {
     }
   }
 
+  void _changeAlertFilter(InventoryAlertFilter next) {
+    if (alertFilter == next) return;
+    setState(() {
+      alertFilter = next;
+      limit = pageSize;
+      _subscribe();
+    });
+  }
+
   void _searchChanged() {
     if (mounted) setState(() => query = search.text.toLowerCase().trim());
   }
