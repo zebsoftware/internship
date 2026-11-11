@@ -1,3 +1,6 @@
+import 'pharmacy_data.dart';
+import 'adjust_stock_dialog.dart';
+import 'pharmacy_settings.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'medicine_model.dart';
@@ -30,19 +33,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
   }
 
   Stream<QuerySnapshot> _getMedicinesStream() {
-    Query query = _firestore.collection('medicines');
-
-    // Apply search filter
-    if (_searchQuery.isNotEmpty) {
-      query = query.where('name', isGreaterThanOrEqualTo: _searchQuery);
-    }
-
-    // Apply type filter
-    if (_selectedCategory != 'All Items') {
-      query = query.where('type', isEqualTo: _selectedCategory);
-    }
-
-    return query.orderBy('createdAt', descending: true).snapshots();
+    return PharmacyData.collection('medicines').snapshots();
   }
 
   void _showAddMedicineDialog({Medicine? medicine}) {
@@ -54,6 +45,10 @@ class _InventoryScreenState extends State<InventoryScreen> {
         onSaved: () => setState(() {}),
       ),
     );
+  }
+
+  void _showStockAdjustment(Medicine medicine) {
+    showDialog(context: context, builder: (_) => AdjustStockDialog(medicine: medicine));
   }
 
   Future<void> _deleteMedicine(String medicineId) async {
@@ -88,7 +83,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
           ElevatedButton(
             onPressed: () async {
               Navigator.pop(context);
-              await _firestore.collection('medicines').doc(medicineId).delete();
+              await PharmacyData.collection('medicines').doc(medicineId).delete();
               setState(() {});
             },
             style: ElevatedButton.styleFrom(
@@ -215,21 +210,21 @@ class _InventoryScreenState extends State<InventoryScreen> {
                 ),
                 const SizedBox(width: 12),
                 _CategoryButton(
-                  label: 'Tablets',
-                  isSelected: _selectedCategory == 'Tablets',
-                  onTap: () => setState(() => _selectedCategory = 'Tablets'),
+                  label: 'Tablet',
+                  isSelected: _selectedCategory == 'Tablet',
+                  onTap: () => setState(() => _selectedCategory = 'Tablet'),
                 ),
                 const SizedBox(width: 12),
                 _CategoryButton(
-                  label: 'Capsules',
-                  isSelected: _selectedCategory == 'Capsules',
-                  onTap: () => setState(() => _selectedCategory = 'Capsules'),
+                  label: 'Capsule',
+                  isSelected: _selectedCategory == 'Capsule',
+                  onTap: () => setState(() => _selectedCategory = 'Capsule'),
                 ),
                 const SizedBox(width: 12),
                 _CategoryButton(
-                  label: 'Syrups',
-                  isSelected: _selectedCategory == 'Syrups',
-                  onTap: () => setState(() => _selectedCategory = 'Syrups'),
+                  label: 'Syrup',
+                  isSelected: _selectedCategory == 'Syrup',
+                  onTap: () => setState(() => _selectedCategory = 'Syrup'),
                 ),
               ],
             ),
@@ -258,7 +253,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
                   );
                 }
 
-                if (snapshot.data!.docs.isEmpty) {
+                if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
                   return Center(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
@@ -297,9 +292,18 @@ class _InventoryScreenState extends State<InventoryScreen> {
                   );
                 }
 
+                final search = _searchQuery.toLowerCase().trim();
                 final medicines = snapshot.data!.docs
                     .map((doc) => Medicine.fromFirestore(doc))
+                    .where((m) => (_selectedCategory == 'All Items' || m.type.trim().toLowerCase() == _selectedCategory.toLowerCase()) &&
+                      (search.isEmpty || m.name.toLowerCase().contains(search) ||
+                      m.batchNo.toLowerCase().contains(search) ||
+                      m.type.toLowerCase().contains(search)))
                     .toList();
+
+                if (medicines.isEmpty) {
+                  return const Center(child: Text('No medicines match this filter', style: TextStyle(color: Colors.white70)));
+                }
 
                 return ListView.builder(
                   padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -313,6 +317,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
                         onEdit: () =>
                             _showAddMedicineDialog(medicine: medicine),
                         onDelete: () => _deleteMedicine(medicine.id!),
+                        onStock: () => _showStockAdjustment(medicine),
                       ),
                     );
                   },
@@ -367,12 +372,14 @@ class _InventoryCard extends StatelessWidget {
   final Medicine medicine;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
+  final VoidCallback onStock;
 
   const _InventoryCard({
     Key? key,
     required this.medicine,
     required this.onEdit,
     required this.onDelete,
+    required this.onStock,
   }) : super(key: key);
 
   @override
@@ -433,7 +440,7 @@ class _InventoryCard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Text(
-                '\$${medicine.sellingPrice.toStringAsFixed(2)}',
+                formatMoney(medicine.sellingPrice, PharmacySettingsService.instance.current.value.currency),
                 style: const TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.bold,
@@ -476,6 +483,7 @@ class _InventoryCard extends StatelessWidget {
                   ],
                 ),
               ),
+              const PopupMenuItem(value: 'stock', child: Text('Add / Return Stock')),
               PopupMenuItem(
                 value: 'delete',
                 child: Row(
@@ -492,6 +500,8 @@ class _InventoryCard extends StatelessWidget {
             onSelected: (value) {
               if (value == 'edit') {
                 onEdit();
+              } else if (value == 'stock') {
+                onStock();
               } else if (value == 'delete') {
                 onDelete();
               }

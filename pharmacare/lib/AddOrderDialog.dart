@@ -1,7 +1,10 @@
+import 'pharmacy_data.dart';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart' as firestore; // Add prefix
 import 'package:pharmacare/medicine_model.dart';
 import 'order_model.dart';
+import 'pharmacy_settings.dart';
 
 class AddOrderDialog extends StatefulWidget {
   final VoidCallback onSaved;
@@ -27,6 +30,7 @@ class _AddOrderDialogState extends State<AddOrderDialog> {
   // Order items
   final List<OrderItem> _selectedItems = [];
   List<Medicine> _availableMedicines = [];
+  StreamSubscription<firestore.QuerySnapshot<Map<String, dynamic>>>? _inventorySubscription;
 
   // For adding new item
   Medicine? _selectedMedicine;
@@ -35,31 +39,40 @@ class _AddOrderDialogState extends State<AddOrderDialog> {
   @override
   void initState() {
     super.initState();
+    PharmacySettingsService.instance.listen();
     _loadMedicines();
   }
 
-  Future<void> _loadMedicines() async {
+  void _loadMedicines() {
     try {
-      final snapshot = await _firestore
-          .collection('medicines')
-          .where('quantity', isGreaterThan: 0)
-          .orderBy('quantity')
-          .get();
-
-      setState(() {
-        _availableMedicines = snapshot.docs
-            .map((doc) => Medicine.fromFirestore(doc))
+      _inventorySubscription = PharmacyData.collection('medicines').snapshots().listen((snapshot) {
+        if (!mounted) return;
+        setState(() {
+          _availableMedicines = snapshot.docs.map((doc) => Medicine.fromFirestore(doc))
+            .where((medicine) => medicine.quantity > 0 && !medicine.expiryDate.isBefore(DateTime.now()))
             .toList();
+        });
       });
     } catch (e) {
       print('Error loading medicines: $e');
     }
   }
 
-  void _addItem() {
-    if (_selectedMedicine == null || _quantityController.text.isEmpty) return;
+  @override
+  void dispose() {
+    _inventorySubscription?.cancel();
+    _customerNameController.dispose();
+    _customerPhoneController.dispose();
+    _customerEmailController.dispose();
+    _notesController.dispose();
+    _quantityController.dispose();
+    super.dispose();
+  }
 
-    final quantity = int.tryParse(_quantityController.text) ?? 0;
+  void _addItem() {
+    if (_selectedMedicine == null) return;
+
+    final quantity = int.tryParse(_quantityController.text.trim().isEmpty ? '1' : _quantityController.text.trim()) ?? 0;
     if (quantity <= 0 || quantity > _selectedMedicine!.quantity) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -116,6 +129,27 @@ class _AddOrderDialogState extends State<AddOrderDialog> {
     _quantityController.clear();
   }
 
+  void _changeItemQuantity(int index, int quantity) {
+    if (index < 0 || index >= _selectedItems.length) return;
+    final original = _selectedItems[index];
+    final available = _availableMedicines.where((m) => m.id == original.medicineId);
+    if (available.isEmpty || quantity < 1 || quantity > available.first.quantity) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Insufficient available stock')),
+      );
+      return;
+    }
+    setState(() {
+      _selectedItems[index] = OrderItem(
+        medicineId: original.medicineId,
+        medicineName: original.medicineName,
+        price: original.price,
+        quantity: quantity,
+        total: original.price * quantity,
+      );
+    });
+  }
+
   void _removeItem(int index) {
     setState(() {
       _selectedItems.removeAt(index);
@@ -127,88 +161,103 @@ class _AddOrderDialogState extends State<AddOrderDialog> {
   }
 
   double get _tax {
-    return _subtotal * 0.13; // 13% tax
+    return _subtotal * PharmacySettingsService.instance.current.value.taxPercent / 100;
   }
 
   double get _total {
     return _subtotal + _tax;
   }
 
+  bool _isSavingOrder = false;
+
   Future<void> _createOrder() async {
-    if (_formKey.currentState!.validate() && _selectedItems.isNotEmpty) {
-      try {
-        // Create order
-        final order = Order(  // This is your custom Order from order_model.dart
-          customerName: _customerNameController.text.trim(),
-          customerPhone: _customerPhoneController.text.trim(),
-          customerEmail: _customerEmailController.text.trim(),
-          items: _selectedItems,
-          subtotal: _subtotal,
-          tax: _tax,
-          totalAmount: _total,
-          status: _status,
-          paymentMethod: _paymentMethod,
-          notes: _notesController.text.trim(),
-        );
+    if (_isSavingOrder) return;
+    if (!_formKey.currentState!.validate()) return;
 
-        // Add to Firestore
-        final orderDoc = await _firestore.collection('orders').add(order.toMap());
+    if (_selectedItems.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please add at least one medicine')),
+      );
+      return;
+    }
 
-        // Update medicine quantities
-        for (final item in _selectedItems) {
-          final medicineDoc = await _firestore
-              .collection('medicines')
-              .doc(item.medicineId)
-              .get();
+    setState(() => _isSavingOrder = true);
+    try {
+      final items = List<OrderItem>.of(_selectedItems);
+      final order = Order(
+        customerName: _customerNameController.text.trim(),
+        customerPhone: _customerPhoneController.text.trim(),
+        customerEmail: _customerEmailController.text.trim(),
+        items: items,
+        subtotal: _subtotal,
+        tax: _tax,
+        totalAmount: _total,
+        status: _status,
+        paymentMethod: _paymentMethod,
+        notes: _notesController.text.trim(),
+      );
+      final orderRef = PharmacyData.collection('orders').doc();
 
-          if (medicineDoc.exists) {
-            final currentQuantity = medicineDoc.data()!['quantity'] ?? 0;
-            final newQuantity = currentQuantity - item.quantity;
+      await _firestore.runTransaction((transaction) async {
+        final quantities = <String, int>{};
+        final refs = <String, firestore.DocumentReference<Map<String, dynamic>>>{};
 
-            await _firestore
-                .collection('medicines')
-                .doc(item.medicineId)
-                .update({
-                  'quantity': newQuantity,
-                });
+        // Read all stock documents before scheduling any writes.
+        for (final item in items) {
+          if (item.quantity <= 0 || item.medicineId.isEmpty) {
+            throw StateError('Invalid quantity or medicine selection.');
           }
+          if (refs.containsKey(item.medicineId)) continue;
+          final ref = PharmacyData.collection('medicines').doc(item.medicineId);
+          final snapshot = await transaction.get(ref);
+          if (!snapshot.exists) {
+            throw StateError('${item.medicineName} is no longer available.');
+          }
+          final stock = snapshot.data()?['quantity'];
+          if (stock is! num || stock < 0) {
+            throw StateError('Invalid stock record for ${item.medicineName}.');
+          }
+          refs[item.medicineId] = ref;
+          quantities[item.medicineId] = stock.toInt();
         }
 
-        widget.onSaved();
-        Navigator.pop(context);
+        final requested = <String, int>{};
+        for (final item in items) {
+          requested.update(
+            item.medicineId,
+            (value) => value + item.quantity,
+            ifAbsent: () => item.quantity,
+          );
+        }
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            backgroundColor: Color(0xFF10B981),
-            content: Text('Order created successfully'),
-          ),
-        );
-      } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            backgroundColor: const Color(0xFFEF4444),
-            content: Text('Error: $e'),
-          ),
-        );
-      }
-    } else if (_selectedItems.isEmpty) {
+        for (final entry in requested.entries) {
+          final remaining = quantities[entry.key]! - entry.value;
+          if (remaining < 0) {
+            throw StateError('Insufficient stock for one or more medicines.');
+          }
+          transaction.update(refs[entry.key]!, {'quantity': remaining});
+        }
+        transaction.set(orderRef, {...order.toMap(), 'currency': PharmacySettingsService.instance.current.value.currency, 'taxPercent': PharmacySettingsService.instance.current.value.taxPercent});
+      });
+
+      if (!mounted) return;
+      widget.onSaved();
+      Navigator.of(context).pop();
+    } catch (e) {
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          backgroundColor: Color(0xFFEF4444),
-          content: Text('Please add at least one item'),
-        ),
+        SnackBar(content: Text('Unable to create order: $e')),
       );
+    } finally {
+      if (mounted) setState(() => _isSavingOrder = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Dialog(
-      backgroundColor: const Color(0xFF0A1628),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: SingleChildScrollView(
+    return Dialog.fullscreen(
+      backgroundColor: const Color(0xFF071A31),
+      child: SafeArea(child: SingleChildScrollView(
         padding: const EdgeInsets.all(24),
         child: Form(
           key: _formKey,
@@ -220,7 +269,7 @@ class _AddOrderDialogState extends State<AddOrderDialog> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   const Text(
-                    '➕ Create New Order',
+                    'New Order',
                     style: TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
@@ -251,7 +300,7 @@ class _AddOrderDialogState extends State<AddOrderDialog> {
 
               // Customer Name
               const Text(
-                'Full Name',
+                'Customer Name',
                 style: TextStyle(
                   color: Color(0xFF94A3B8),
                   fontSize: 14,
@@ -280,79 +329,6 @@ class _AddOrderDialogState extends State<AddOrderDialog> {
               ),
               const SizedBox(height: 16),
 
-              Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Phone Number',
-                          style: TextStyle(
-                            color: Color(0xFF94A3B8),
-                            fontSize: 14,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        TextFormField(
-                          controller: _customerPhoneController,
-                          style: const TextStyle(color: Colors.white),
-                          keyboardType: TextInputType.phone,
-                          decoration: InputDecoration(
-                            hintText: 'Enter phone',
-                            hintStyle: const TextStyle(color: Color(0xFF64748B)),
-                            filled: true,
-                            fillColor: const Color(0xFF1E293B),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide.none,
-                            ),
-                          ),
-                          validator: (value) {
-                            if (value == null || value.isEmpty) {
-                              return 'Required';
-                            }
-                            return null;
-                          },
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Email (Optional)',
-                          style: TextStyle(
-                            color: Color(0xFF94A3B8),
-                            fontSize: 14,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        TextFormField(
-                          controller: _customerEmailController,
-                          style: const TextStyle(color: Colors.white),
-                          keyboardType: TextInputType.emailAddress,
-                          decoration: InputDecoration(
-                            hintText: 'Enter email',
-                            hintStyle: const TextStyle(color: Color(0xFF64748B)),
-                            filled: true,
-                            fillColor: const Color(0xFF1E293B),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide.none,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 24),
-
               // Add Medicines Section
               const Text(
                 'Add Medicines',
@@ -372,86 +348,55 @@ class _AddOrderDialogState extends State<AddOrderDialog> {
                 ),
                 child: Column(
                   children: [
-                    // Medicine Selection
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 16),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFF0F172A),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: DropdownButtonHideUnderline(
-                              child: DropdownButton<Medicine?>(
-                                value: _selectedMedicine,
-                                hint: const Text(
-                                  'Select Medicine',
-                                  style: TextStyle(color: Color(0xFF64748B)),
-                                ),
-                                isExpanded: true,
-                                dropdownColor: const Color(0xFF1E293B),
-                                style: const TextStyle(color: Colors.white),
-                                items: [
-                                  const DropdownMenuItem(
-                                    value: null,
-                                    child: Text('Select Medicine'),
-                                  ),
-                                  ..._availableMedicines.map((medicine) {
-                                    return DropdownMenuItem(
-                                      value: medicine,
-                                      child: Text(
-                                        '${medicine.name} (${medicine.quantity} left)',
-                                        style: TextStyle(
-                                          color: medicine.isLowStock
-                                              ? const Color(0xFFF59E0B)
-                                              : medicine.isOutOfStock
-                                                  ? const Color(0xFFEF4444)
-                                                  : Colors.white,
-                                        ),
-                                      ),
-                                    );
-                                  }),
-                                ],
-                                onChanged: (Medicine? value) {
-                                  setState(() => _selectedMedicine = value);
-                                },
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        SizedBox(
-                          width: 100,
-                          child: TextFormField(
-                            controller: _quantityController,
-                            style: const TextStyle(color: Colors.white),
-                            keyboardType: TextInputType.number,
-                            decoration: InputDecoration(
-                              hintText: 'Qty',
-                              hintStyle: const TextStyle(color: Color(0xFF64748B)),
-                              filled: true,
-                              fillColor: const Color(0xFF0F172A),
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                borderSide: BorderSide.none,
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        ElevatedButton(
-                          onPressed: _addItem,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF2B7AFE),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                          ),
-                          child: const Icon(Icons.add, size: 20),
-                        ),
-                      ],
+                    OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size.fromHeight(55),
+                        alignment: Alignment.centerLeft,
+                        foregroundColor: Colors.white,
+                        side: const BorderSide(color: Color(0xFF52729A)),
+                      ),
+                      onPressed: () async {
+                        final selected = await showSearch<Medicine?>(
+                          context: context,
+                          delegate: _MedicineSearchDelegate(_availableMedicines),
+                        );
+                        if (selected != null && mounted) {
+                          setState(() => _selectedMedicine = selected);
+                        }
+                      },
+                      icon: const Icon(Icons.search),
+                      label: Text(
+                        _selectedMedicine == null
+                          ? 'Search and select medicine'
+                          : '${_selectedMedicine!.name} (${_selectedMedicine!.quantity} left)',
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
+                    if (_availableMedicines.isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.only(top: 8),
+                        child: Text('No medicines in your inventory. Add medicines in Inventory first.',
+                          style: TextStyle(color: Colors.amber)),
+                      ),
+                    const SizedBox(height: 12),
+                    Row(children: [
+                      Expanded(child: TextFormField(
+                        controller: _quantityController,
+                        keyboardType: TextInputType.number,
+                        decoration: const InputDecoration(labelText: 'Quantity', hintText: '1'),
+                      )),
+                      const SizedBox(width: 12),
+                      Expanded(child: ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF2B7AFE),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 18),
+                        ),
+                        onPressed: _selectedMedicine == null ? null : _addItem,
+                        icon: const Icon(Icons.add_shopping_cart),
+                        label: const Text('Add Item'),
+                      )),
+                    ]),
                     const SizedBox(height: 16),
 
                     // Selected Items List
@@ -480,7 +425,7 @@ class _AddOrderDialogState extends State<AddOrderDialog> {
                                       ),
                                     ),
                                     Text(
-                                      '\$${item.price.toStringAsFixed(2)} × ${item.quantity}',
+                                      '${formatMoney(item.price, PharmacySettingsService.instance.current.value.currency)} × ${item.quantity}',
                                       style: const TextStyle(
                                         color: Color(0xFF94A3B8),
                                         fontSize: 12,
@@ -490,11 +435,24 @@ class _AddOrderDialogState extends State<AddOrderDialog> {
                                 ),
                               ),
                               Text(
-                                '\$${item.total.toStringAsFixed(2)}',
+                                formatMoney(item.total, PharmacySettingsService.instance.current.value.currency),
                                 style: const TextStyle(
                                   color: Colors.white,
                                   fontWeight: FontWeight.bold,
                                 ),
+                              ),
+                              IconButton(
+                                tooltip: 'Decrease quantity',
+                                icon: const Icon(Icons.remove_circle_outline),
+                                onPressed: item.quantity > 1
+                                    ? () => _changeItemQuantity(index, item.quantity - 1)
+                                    : null,
+                              ),
+                              Text('${item.quantity}'),
+                              IconButton(
+                                tooltip: 'Increase quantity',
+                                icon: const Icon(Icons.add_circle_outline),
+                                onPressed: () => _changeItemQuantity(index, item.quantity + 1),
                               ),
                               IconButton(
                                 icon: const Icon(
@@ -524,17 +482,17 @@ class _AddOrderDialogState extends State<AddOrderDialog> {
                   children: [
                     _SummaryRow(
                       label: 'Subtotal',
-                      value: '\$${_subtotal.toStringAsFixed(2)}',
+                      value: formatMoney(_subtotal, PharmacySettingsService.instance.current.value.currency),
                     ),
                     const SizedBox(height: 8),
                     _SummaryRow(
                       label: 'Tax (13%)',
-                      value: '\$${_tax.toStringAsFixed(2)}',
+                      value: formatMoney(_tax, PharmacySettingsService.instance.current.value.currency),
                     ),
                     const Divider(color: Color(0xFF334155), height: 24),
                     _SummaryRow(
                       label: 'Total',
-                      value: '\$${_total.toStringAsFixed(2)}',
+                      value: formatMoney(_total, PharmacySettingsService.instance.current.value.currency),
                       isTotal: true,
                     ),
                   ],
@@ -674,17 +632,19 @@ class _AddOrderDialogState extends State<AddOrderDialog> {
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
-                  onPressed: _createOrder,
+                  onPressed: _isSavingOrder || _selectedItems.isEmpty ? null : _createOrder,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF2B7AFE),
+                    foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(vertical: 16),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),
                   ),
                   child: const Text(
-                    'Create Order',
+                    'Place Order',
                     style: TextStyle(
+                      color: Colors.white,
                       fontSize: 16,
                       fontWeight: FontWeight.w600,
                     ),
@@ -694,7 +654,7 @@ class _AddOrderDialogState extends State<AddOrderDialog> {
             ],
           ),
         ),
-      ),
+      )),
     );
   }
 }
@@ -734,5 +694,35 @@ class _SummaryRow extends StatelessWidget {
         ),
       ],
     );
+  }
+}
+class _MedicineSearchDelegate extends SearchDelegate<Medicine?> {
+  final List<Medicine> medicines;
+  _MedicineSearchDelegate(this.medicines);
+  @override
+  String get searchFieldLabel => 'Search medicine name or batch';
+  @override
+  List<Widget> buildActions(BuildContext context) => [
+    IconButton(icon: const Icon(Icons.clear), onPressed: () { query = ''; }),
+  ];
+  @override
+  Widget buildLeading(BuildContext context) => IconButton(
+    icon: const Icon(Icons.arrow_back), onPressed: () => close(context, null));
+  @override
+  Widget buildResults(BuildContext context) => buildSuggestions(context);
+  @override
+  Widget buildSuggestions(BuildContext context) {
+    final q = query.trim().toLowerCase();
+    final results = medicines.where((m) => m.name.toLowerCase().contains(q)
+        || m.batchNo.toLowerCase().contains(q)).toList();
+    if (results.isEmpty) return const Center(child: Text('No matching medicines'));
+    return ListView.builder(itemCount: results.length, itemBuilder: (context, i) {
+      final medicine = results[i];
+      return ListTile(
+        title: Text(medicine.name),
+        subtitle: Text('${medicine.quantity} available · Batch ${medicine.batchNo}'),
+        onTap: () => close(context, medicine),
+      );
+    });
   }
 }

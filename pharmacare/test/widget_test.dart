@@ -1,30 +1,48 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-
-import 'package:pharmacare/main.dart';
+import 'package:pharmacare/medicine_model.dart';
+import 'package:pharmacare/order_model.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const PharmaCareApp());
+  group('Medicine stock classification', () {
+    Medicine medicine(int quantity) => Medicine(
+      name: 'Test medicine',
+      batchNo: 'B-01',
+      type: 'Tablet',
+      quantity: quantity,
+      costPrice: 10,
+      sellingPrice: 15,
+      expiryDate: DateTime(2030, 1, 1),
+    );
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+    test('zero quantity is out of stock', () {
+      expect(medicine(0).isOutOfStock, isTrue);
+      expect(medicine(0).statusText, 'Out of Stock');
+    });
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
+    test('quantities below 20 are low stock', () {
+      expect(medicine(19).isLowStock, isTrue);
+      expect(medicine(19).statusText, 'Low Stock');
+    });
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    test('20 and above are in stock', () {
+      expect(medicine(20).isLowStock, isFalse);
+      expect(medicine(20).statusText, 'In Stock');
+    });
+  });
+
+  test('Order item count sums quantities', () {
+    final order = Order(
+      customerName: 'Sample',
+      customerPhone: '',
+      customerEmail: '',
+      items: [
+        OrderItem(medicineId: 'a', medicineName: 'A', price: 10, quantity: 2, total: 20),
+        OrderItem(medicineId: 'b', medicineName: 'B', price: 5, quantity: 3, total: 15),
+      ],
+      subtotal: 35,
+      tax: 0,
+      totalAmount: 35,
+    );
+    expect(order.totalItems, 5);
   });
 }

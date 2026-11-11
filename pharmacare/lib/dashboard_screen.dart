@@ -1,3 +1,5 @@
+import 'pharmacy_data.dart';
+import 'pharmacy_settings.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -5,9 +7,10 @@ import 'orders_screen.dart';
 import 'inventory_screen.dart';
 import 'analytics_screen.dart';
 import 'profile_screen.dart';
+import 'pharma_home.dart';
 
 class DashboardScreen extends StatefulWidget {
-  const DashboardScreen({Key? key}) : super(key: key);
+  const DashboardScreen({super.key});
 
   @override
   State<DashboardScreen> createState() => _DashboardScreenState();
@@ -15,77 +18,70 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   int _currentIndex = 0;
-  final User? currentUser = FirebaseAuth.instance.currentUser;
 
-  final List<Widget> _screens = [
-    const DashboardContent(),
-    const OrdersScreen(),
-    const InventoryScreen(),
-    const AnalyticsScreen(),
-    const ProfileScreen(),
+  final List<Widget> _screens = const [
+    PharmaHome(),
+    OrdersScreen(),
+    InventoryScreen(),
+    AnalyticsScreen(),
+    ProfileScreen(),
+  ];
+
+  static const _items = <({String label, IconData icon, IconData active})>[
+    (label: 'Home', icon: Icons.home_outlined, active: Icons.home_rounded),
+    (label: 'Orders', icon: Icons.receipt_long_outlined, active: Icons.receipt_long_rounded),
+    (label: 'Inventory', icon: Icons.inventory_2_outlined, active: Icons.inventory_2_rounded),
+    (label: 'Analytics', icon: Icons.insights_outlined, active: Icons.insights_rounded),
+    (label: 'Profile', icon: Icons.person_outline_rounded, active: Icons.person_rounded),
   ];
 
   @override
   Widget build(BuildContext context) {
+    final isDesktop = MediaQuery.sizeOf(context).width >= 760;
     return Scaffold(
-      backgroundColor: const Color(0xFF0A1628),
-      body: _screens[_currentIndex],
-      bottomNavigationBar: Container(
-        decoration: const BoxDecoration(
-          color: Color(0xFF1E293B),
-          border: Border(
-            top: BorderSide(color: Color(0xFF334155), width: 0.5),
-          ),
-        ),
-        child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
+      body: isDesktop
+          ? Row(
               children: [
-                _buildNavItem(Icons.home_rounded, 'Home', 0),
-                _buildNavItem(Icons.shopping_cart_rounded, 'Orders', 1),
-                _buildNavItem(Icons.inventory_2_rounded, 'Inventory', 2),
-                _buildNavItem(Icons.analytics_rounded, 'Analytics', 3),
-                _buildNavItem(Icons.person_rounded, 'Profile', 4),
+                NavigationRail(
+                  backgroundColor: const Color(0xFF10233B),
+                  selectedIndex: _currentIndex,
+                  onDestinationSelected: (index) => setState(() => _currentIndex = index),
+                  extended: MediaQuery.sizeOf(context).width >= 1150,
+                  labelType: MediaQuery.sizeOf(context).width >= 1150
+                      ? NavigationRailLabelType.none
+                      : NavigationRailLabelType.selected,
+                  leading: const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 18),
+                    child: Icon(Icons.medical_services_rounded, size: 30, color: Color(0xFF17BB9C)),
+                  ),
+                  destinations: [
+                    for (final item in _items)
+                      NavigationRailDestination(
+                        icon: Icon(item.icon),
+                        selectedIcon: Icon(item.active),
+                        label: Text(item.label),
+                      ),
+                  ],
+                ),
+                const VerticalDivider(thickness: 1, width: 1),
+                Expanded(child: _screens[_currentIndex]),
+              ],
+            )
+          : _screens[_currentIndex],
+      bottomNavigationBar: isDesktop
+          ? null
+          : NavigationBar(
+              selectedIndex: _currentIndex,
+              onDestinationSelected: (index) => setState(() => _currentIndex = index),
+              destinations: [
+                for (final item in _items)
+                  NavigationDestination(
+                    icon: Icon(item.icon),
+                    selectedIcon: Icon(item.active),
+                    label: item.label,
+                  ),
               ],
             ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildNavItem(IconData icon, String label, int index) {
-    final isSelected = _currentIndex == index;
-    return GestureDetector(
-      onTap: () => setState(() => _currentIndex = index),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF2B7AFE) : Colors.transparent,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              icon,
-              color: isSelected ? Colors.white : const Color(0xFF64748B),
-              size: 24,
-            ),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 10,
-                color: isSelected ? Colors.white : const Color(0xFF64748B),
-                fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }
@@ -112,7 +108,7 @@ class _DashboardContentState extends State<DashboardContent> {
   Future<void> _fetchUserData() async {
     if (currentUser != null) {
       try {
-        print('Current User UID: ${currentUser!.uid}');
+        // Avoid logging authentication identifiers.
         
         // Get user data from Firestore using the UID
         DocumentSnapshot userDoc = await FirebaseFirestore.instance
@@ -123,7 +119,7 @@ class _DashboardContentState extends State<DashboardContent> {
         if (userDoc.exists) {
           print('User document exists');
           Map<String, dynamic> userData = userDoc.data() as Map<String, dynamic>;
-          print('User data: $userData');
+          // Profile details are intentionally not logged.
           
           setState(() {
             // Using your exact field names from the image
@@ -143,7 +139,7 @@ class _DashboardContentState extends State<DashboardContent> {
           });
         }
       } catch (e) {
-        print('Error fetching user data: $e');
+        // Avoid logging potentially sensitive profile errors.
         setState(() {
           _isLoading = false;
         });
@@ -158,8 +154,7 @@ class _DashboardContentState extends State<DashboardContent> {
 
   // Stream for low stock items (quantity < 10)
   Stream<int> getLowStockCount() {
-    return FirebaseFirestore.instance
-        .collection('medicines')
+    return PharmacyData.collection('medicines')
         .where('quantity', isLessThan: 10)
         .snapshots()
         .map((snapshot) => snapshot.docs.length);
@@ -169,17 +164,15 @@ class _DashboardContentState extends State<DashboardContent> {
   Stream<int> getExpiringCount() {
     DateTime twoMonthsFromNow = DateTime.now().add(const Duration(days: 60));
     
-    return FirebaseFirestore.instance
-        .collection('medicines')
-        .where('expiryDate', isLessThanOrEqualTo: twoMonthsFromNow)
+    return PharmacyData.collection('medicines')
+        .where('expiryDate', isLessThanOrEqualTo: Timestamp.fromDate(twoMonthsFromNow))
         .snapshots()
         .map((snapshot) => snapshot.docs.length);
   }
 
   // Stream for total revenue (completed orders)
   Stream<double> getTotalRevenue() {
-    return FirebaseFirestore.instance
-        .collection('orders')
+    return PharmacyData.collection('orders')
         .where('status', isEqualTo: 'completed')
         .snapshots()
         .map((snapshot) {
@@ -200,16 +193,14 @@ class _DashboardContentState extends State<DashboardContent> {
 
   // Stream for total orders count
   Stream<int> getTotalOrders() {
-    return FirebaseFirestore.instance
-        .collection('orders')
+    return PharmacyData.collection('orders')
         .snapshots()
         .map((snapshot) => snapshot.docs.length);
   }
 
   // Stream for recent orders
   Stream<QuerySnapshot> getRecentOrders() {
-    return FirebaseFirestore.instance
-        .collection('orders')
+    return PharmacyData.collection('orders')
         .orderBy('createdAt', descending: true)
         .limit(5)
         .snapshots();
@@ -253,7 +244,7 @@ class _DashboardContentState extends State<DashboardContent> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'Dr. $fullName',
+                      fullName,
                       style: const TextStyle(
                         fontSize: 24,
                         fontWeight: FontWeight.bold,
@@ -270,58 +261,50 @@ class _DashboardContentState extends State<DashboardContent> {
                     //   ),
                   ],
                 ),
-                Stack(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF1E293B),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: const Icon(
-                        Icons.notifications_rounded,
-                        color: Colors.white,
-                        size: 24,
-                      ),
-                    ),
-                    // Notification badge for low stock and expiring items
-                    StreamBuilder<int>(
-                      stream: getLowStockCount(),
-                      builder: (context, lowStockSnapshot) {
-                        return StreamBuilder<int>(
-                          stream: getExpiringCount(),
-                          builder: (context, expiringSnapshot) {
-                            int totalAlerts = 0;
-                            if (lowStockSnapshot.hasData) totalAlerts += lowStockSnapshot.data!;
-                            if (expiringSnapshot.hasData) totalAlerts += expiringSnapshot.data!;
-                            
-                            if (totalAlerts > 0) {
-                              return Positioned(
-                                top: 8,
-                                right: 8,
-                                child: Container(
-                                  padding: const EdgeInsets.all(4),
-                                  decoration: const BoxDecoration(
-                                    color: Color(0xFFEF4444),
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: Text(
-                                    totalAlerts > 9 ? '9+' : totalAlerts.toString(),
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 8,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                ),
-                              );
+                IconButton(
+                  tooltip: 'Inventory notifications',
+                  icon: const Icon(Icons.notifications_rounded, color: Colors.white),
+                  onPressed: () => showDialog<void>(
+                    context: context,
+                    builder: (dialogContext) => AlertDialog(
+                      title: const Text('Inventory notifications'),
+                      content: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                        stream: PharmacyData.collection('medicines').snapshots(),
+                        builder: (context, snapshot) {
+                          if (snapshot.hasError) return Text('Could not load notifications: ${snapshot.error}');
+                          if (!snapshot.hasData) return const CircularProgressIndicator();
+                          final config = PharmacySettingsService.instance.current.value;
+                          if (!config.alertsEnabled) return const Text('Notifications are disabled in Settings.');
+                          final now = DateTime.now();
+                          final alerts = <String>[];
+                          for (final doc in snapshot.data!.docs) {
+                            final medicine = doc.data();
+                            final name = medicine['name'] as String? ?? 'Medicine';
+                            final quantity = (medicine['quantity'] as num?)?.toInt() ?? 0;
+                            if (quantity <= config.lowStockThreshold) {
+                              alerts.add('$name: low stock ($quantity left)');
                             }
-                            return const SizedBox.shrink();
-                          },
-                        );
-                      },
+                            final expires = medicine['expiryDate'];
+                            if (expires is Timestamp &&
+                                expires.toDate().isBefore(now.add(Duration(days: config.expiryWarningDays)))) {
+                              alerts.add('$name: approaching expiry');
+                            }
+                          }
+                          if (alerts.isEmpty) return const Text('No current inventory alerts.');
+                          return SizedBox(width: 320, height: 260,
+                            child: ListView(children: alerts.map((a) => ListTile(
+                              leading: const Icon(Icons.warning_amber_outlined),
+                              title: Text(a),
+                            )).toList()),
+                          );
+                        },
+                      ),
+                      actions: [
+                        TextButton(onPressed: () => Navigator.pop(dialogContext),
+                          child: const Text('Close')),
+                      ],
                     ),
-                  ],
+                  ),
                 ),
               ],
             ),
@@ -376,8 +359,8 @@ class _DashboardContentState extends State<DashboardContent> {
                       builder: (context, snapshot) {
                         double revenue = snapshot.data ?? 0;
                         String revenueText = revenue >= 1000 
-                            ? '\$${(revenue/1000).toStringAsFixed(1)}K'
-                            : '\$${revenue.toStringAsFixed(0)}';
+                            ?  '${formatMoney(revenue/1000, PharmacySettingsService.instance.current.value.currency)}K'
+                            : formatMoney(revenue, PharmacySettingsService.instance.current.value.currency);
                         
                         return _StatCard(
                           icon: Icons.attach_money_rounded,

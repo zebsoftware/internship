@@ -1,3 +1,4 @@
+import 'pharmacy_settings.dart';
 import 'package:flutter/material.dart';
 import 'order_model.dart';
 
@@ -146,7 +147,7 @@ class OrderDetailsDialog extends StatelessWidget {
                             ),
                           ),
                           Text(
-                            '\$${item.price.toStringAsFixed(2)} × ${item.quantity}',
+                            '${formatMoney(item.price, PharmacySettingsService.instance.current.value.currency)} × ${item.quantity}',
                             style: const TextStyle(
                               color: Color(0xFF94A3B8),
                               fontSize: 12,
@@ -156,7 +157,7 @@ class OrderDetailsDialog extends StatelessWidget {
                       ),
                     ),
                     Text(
-                      '\$${item.total.toStringAsFixed(2)}',
+                      formatMoney(item.total, PharmacySettingsService.instance.current.value.currency),
                       style: const TextStyle(
                         color: Colors.white,
                         fontWeight: FontWeight.bold,
@@ -180,17 +181,17 @@ class OrderDetailsDialog extends StatelessWidget {
                 children: [
                   _SummaryRow(
                     label: 'Subtotal',
-                    value: '\$${order.subtotal.toStringAsFixed(2)}',
+                    value: formatMoney(order.subtotal, PharmacySettingsService.instance.current.value.currency),
                   ),
                   const SizedBox(height: 8),
                   _SummaryRow(
                     label: 'Tax',
-                    value: '\$${order.tax.toStringAsFixed(2)}',
+                    value: formatMoney(order.tax, PharmacySettingsService.instance.current.value.currency),
                   ),
                   const Divider(color: Color(0xFF334155), height: 24),
                   _SummaryRow(
                     label: 'Total',
-                    value: '\$${order.totalAmount.toStringAsFixed(2)}',
+                    value: formatMoney(order.totalAmount, PharmacySettingsService.instance.current.value.currency),
                     isTotal: true,
                   ),
                 ],
