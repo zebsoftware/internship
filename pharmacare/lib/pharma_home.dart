@@ -179,12 +179,12 @@ class _PharmaHomeState extends State<PharmaHome> {
                               const SizedBox(height: 18),
                             ],
                             GridView.count(
-                              crossAxisCount: layout.maxWidth > 900
-                                  ? 4
-                                  : layout.maxWidth > 450 ? 2 : 2,
+                              crossAxisCount: layout.maxWidth > 900 ? 4 : 2,
                               crossAxisSpacing: 12,
                               mainAxisSpacing: 12,
-                              childAspectRatio: layout.maxWidth > 900 ? 1.7 : 1.4,
+                              childAspectRatio: layout.maxWidth > 900
+                                  ? 1.2
+                                  : layout.maxWidth > 460 ? 1.5 : 1.05,
                               physics: const NeverScrollableScrollPhysics(),
                               shrinkWrap: true,
                               children: [
