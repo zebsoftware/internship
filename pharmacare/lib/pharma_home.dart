@@ -26,8 +26,10 @@ class _PharmaHomeState extends State<PharmaHome> {
     _uid = FirebaseAuth.instance.currentUser?.uid;
     if (_uid != null) {
       _profile = FirebaseFirestore.instance.collection('users').doc(_uid).snapshots();
-      _orders = PharmacyData.collection('orders').snapshots();
-      _medicines = PharmacyData.collection('medicines').snapshots();
+      _orders = PharmacyData.collection('orders')
+          .orderBy('createdAt', descending: true).limit(200).snapshots();
+      _medicines = PharmacyData.collection('medicines')
+          .orderBy('name').limit(200).snapshots();
     }
   }
 
@@ -188,18 +190,21 @@ class _PharmaHomeState extends State<PharmaHome> {
                               physics: const NeverScrollableScrollPhysics(),
                               shrinkWrap: true,
                               children: [
-                                _metric('Total orders', loading ? '—' : '${orderDocs.length}',
+                                _metric('Orders (loaded)', loading ? '—' : '${orderDocs.length}',
                                   Icons.receipt_long_rounded, PharmaTheme.blue),
-                                _metric('Low stock', loading ? '—' : '$lowStock',
+                                _metric('Low stock (loaded)', loading ? '—' : '$lowStock',
                                   Icons.inventory_2_outlined, const Color(0xFFFFB45D)),
                                 _metric('Expiring soon', loading ? '—' : '$expiring',
                                   Icons.event_busy_outlined, const Color(0xFFFF8993)),
-                                _metric('Completed sales',
+                                _metric('Sales (loaded)',
                                   loading ? '—' : formatMoney(sales, settings.currency),
                                   Icons.payments_outlined, PharmaTheme.teal),
                               ],
                             ),
-                            const SizedBox(height: 30),
+                            const SizedBox(height: 8),
+                            const Text('Dashboard summaries cover up to 200 recent orders and 200 medicines.',
+                              style: TextStyle(color: PharmaTheme.muted, fontSize: 11)),
+                            const SizedBox(height: 24),
                             Row(
                               children: [
                                 const Icon(Icons.history_rounded, color: PharmaTheme.teal),
