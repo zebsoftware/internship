@@ -154,8 +154,7 @@ class _DashboardContentState extends State<DashboardContent> {
 
   // Stream for low stock items (quantity < 10)
   Stream<int> getLowStockCount() {
-    return FirebaseFirestore.instance
-        .collection('medicines')
+    return PharmacyData.collection('medicines')
         .where('quantity', isLessThan: 10)
         .snapshots()
         .map((snapshot) => snapshot.docs.length);
@@ -165,8 +164,7 @@ class _DashboardContentState extends State<DashboardContent> {
   Stream<int> getExpiringCount() {
     DateTime twoMonthsFromNow = DateTime.now().add(const Duration(days: 60));
     
-    return FirebaseFirestore.instance
-        .collection('medicines')
+    return PharmacyData.collection('medicines')
         .where('expiryDate', isLessThanOrEqualTo: Timestamp.fromDate(twoMonthsFromNow))
         .snapshots()
         .map((snapshot) => snapshot.docs.length);
@@ -174,8 +172,7 @@ class _DashboardContentState extends State<DashboardContent> {
 
   // Stream for total revenue (completed orders)
   Stream<double> getTotalRevenue() {
-    return FirebaseFirestore.instance
-        .collection('orders')
+    return PharmacyData.collection('orders')
         .where('status', isEqualTo: 'completed')
         .snapshots()
         .map((snapshot) {
@@ -196,16 +193,14 @@ class _DashboardContentState extends State<DashboardContent> {
 
   // Stream for total orders count
   Stream<int> getTotalOrders() {
-    return FirebaseFirestore.instance
-        .collection('orders')
+    return PharmacyData.collection('orders')
         .snapshots()
         .map((snapshot) => snapshot.docs.length);
   }
 
   // Stream for recent orders
   Stream<QuerySnapshot> getRecentOrders() {
-    return FirebaseFirestore.instance
-        .collection('orders')
+    return PharmacyData.collection('orders')
         .orderBy('createdAt', descending: true)
         .limit(5)
         .snapshots();
