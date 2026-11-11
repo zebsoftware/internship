@@ -62,7 +62,9 @@ class _PharmaHomeState extends State<PharmaHome> {
                     final orderDocs = orders.data?.docs
                         .where((doc) => doc.data()['archived'] != true)
                         .toList() ?? [];
-                    final medicineDocs = medicines.data?.docs ?? [];
+                    final medicineDocs = medicines.data?.docs
+                        .where((doc) => doc.data()['archived'] != true)
+                        .toList() ?? [];
                     final sales = orderDocs
                         .where((doc) => doc.data()['status'] == 'completed')
                         .fold<double>(
