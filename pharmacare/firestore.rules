@@ -77,7 +77,9 @@ service cloud.firestore {
       }
 
       match /orders/{orderId} {
-        allow read, delete: if signedInAs(uid);
+        allow read: if signedInAs(uid);
+        // Orders are archived rather than permanently deleted to preserve history.
+        allow delete: if false;
         allow create, update: if signedInAs(uid) && validOrder();
       }
 
