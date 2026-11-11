@@ -61,51 +61,60 @@ class _AddMedicineDialogState extends State<AddMedicineDialog> {
     super.dispose();
   }
 
+  bool _saving = false;
+
   Future<void> _saveMedicine() async {
-    if (_formKey.currentState!.validate()) {
-      try {
-        final medicine = Medicine(
-          name: _nameController.text.trim(),
-          batchNo: _batchNoController.text.trim(),
-          type: _selectedType,
-          quantity: int.parse(_quantityController.text),
-          costPrice: double.parse(_costPriceController.text),
-          sellingPrice: double.parse(_sellingPriceController.text),
-          expiryDate: _selectedDate,
-        );
+    if (_saving || !_formKey.currentState!.validate()) return;
+    setState(() => _saving = true);
+    try {
+      final existing = widget.medicine;
+      final medicine = Medicine(
+        name: _nameController.text.trim(),
+        batchNo: _batchNoController.text.trim(),
+        type: _selectedType,
+        quantity: int.parse(_quantityController.text),
+        costPrice: double.parse(_costPriceController.text),
+        sellingPrice: double.parse(_sellingPriceController.text),
+        expiryDate: _selectedDate,
+        createdAt: existing?.createdAt,
+      );
 
-        if (widget.medicine != null) {
-          // Update existing
-          await PharmacyData.collection('medicines')
-              .doc(widget.medicine!.id)
-              .update(medicine.toMap());
-        } else {
-          // Add new
-          await PharmacyData.collection('medicines').add(medicine.toMap());
-        }
-
-        widget.onSaved();
-        Navigator.pop(context);
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            backgroundColor: const Color(0xFF10B981),
-            content: Text(
-              widget.medicine != null
-                  ? 'Medicine updated'
-                  : 'Medicine added',
-              style: const TextStyle(color: Colors.white),
-            ),
-          ),
-        );
-      } catch (e) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            backgroundColor: const Color(0xFFEF4444),
-            content: Text('Error: $e'),
-          ),
-        );
+      if (existing != null) {
+        if (existing.id == null) throw StateError('Medicine ID is missing.');
+        final ref = PharmacyData.collection('medicines').doc(existing.id);
+        await FirebaseFirestore.instance.runTransaction((transaction) async {
+          final snapshot = await transaction.get(ref);
+          if (!snapshot.exists || snapshot.data()?['archived'] == true) {
+            throw StateError('Medicine is no longer available to edit.');
+          }
+          // Prevent an old edit form from overwriting a concurrent sale or restock.
+          if (snapshot.data()?['quantity'] != existing.quantity) {
+            throw StateError('Stock changed. Reopen this medicine before saving.');
+          }
+          transaction.update(ref, {
+            ...medicine.toMap(),
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+        });
+      } else {
+        await PharmacyData.collection('medicines').add(medicine.toMap());
       }
+
+      if (!mounted) return;
+      final messenger = ScaffoldMessenger.of(context);
+      widget.onSaved();
+      Navigator.of(context).pop();
+      messenger.showSnackBar(SnackBar(
+        content: Text(existing == null ? 'Medicine added' : 'Medicine updated'),
+      ));
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Unable to save medicine. Check the details and current stock.'),
+        ));
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
     }
   }
 
@@ -453,7 +462,7 @@ class _AddMedicineDialogState extends State<AddMedicineDialog> {
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
-                  onPressed: _saveMedicine,
+                  onPressed: _saving ? null : _saveMedicine,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF2B7AFE),
                     padding: const EdgeInsets.symmetric(vertical: 16),
